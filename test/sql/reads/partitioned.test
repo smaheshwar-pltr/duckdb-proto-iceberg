@@ -1,0 +1,74 @@
+# name: test/sql/reads/partitioned.test
+# description: Partitioned Iceberg tables
+# group: [reads]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+# Identity partition on category
+
+query ITR
+SELECT * FROM lake.default.partitioned_table ORDER BY id;
+----
+1	A	10.0
+2	A	20.0
+3	B	30.0
+4	B	40.0
+5	C	50.0
+6	C	60.0
+7	A	70.0
+8	B	80.0
+
+query ITR
+SELECT * FROM lake.default.partitioned_table WHERE category = 'A' ORDER BY id;
+----
+1	A	10.0
+2	A	20.0
+7	A	70.0
+
+query TIR
+SELECT category, count(*), sum(value)
+FROM lake.default.partitioned_table
+GROUP BY category
+ORDER BY category;
+----
+A	3	100.0
+B	3	150.0
+C	2	110.0
+
+# Day partition on event_date
+
+query ITTR
+SELECT * FROM lake.default.date_partitioned ORDER BY id;
+----
+1	2024-01-01	click	0.0
+2	2024-01-01	view	0.0
+3	2024-01-02	click	0.0
+4	2024-01-02	purchase	99.99
+5	2024-01-03	view	0.0
+6	2024-01-03	click	0.0
+
+query ITTR
+SELECT * FROM lake.default.date_partitioned WHERE event_date = '2024-01-02' ORDER BY id;
+----
+3	2024-01-02	click	0.0
+4	2024-01-02	purchase	99.99
+
+query TIR
+SELECT event_date, count(*), sum(amount)
+FROM lake.default.date_partitioned
+GROUP BY event_date
+ORDER BY event_date;
+----
+2024-01-01	2	0.0
+2024-01-02	2	99.99
+2024-01-03	2	0.0

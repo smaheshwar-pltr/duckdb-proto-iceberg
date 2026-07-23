@@ -1,0 +1,114 @@
+# Jobs: format-check, unit-tests (Catch2), integration-tests (Docker + SQLLogicTest)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GEN: ninja
+
+jobs:
+  format-check:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+      - name: Install tools
+        run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq ninja-build clang-format-11
+          sudo pip3 install cmake-format 'black==24.*' cxxheaderparser pcpp 'clang_format==11.0.1'
+      - name: Format check
+        run: make format-check
+
+  unit-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build cmake
+      - uses: hendrikmuhs/ccache-action@main
+        with:
+          key: ccache-unit-tests
+          save: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build
+        run: make debug
+      - name: Run unit tests
+        run: |
+          cmake --build build/debug --target proto_iceberg_unittest
+          build/debug/extension/proto_iceberg/proto_iceberg_unittest
+
+  integration-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ninja-build cmake
+      - uses: hendrikmuhs/ccache-action@main
+        with:
+          key: ccache-integration-tests
+          save: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build
+        run: make debug
+      - name: Start Docker services
+        working-directory: test/docker
+        run: docker compose up -d
+      - name: Wait for REST catalog
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8181/v1/config > /dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "REST catalog did not become ready"
+          docker compose -f test/docker/docker-compose.yml logs
+          exit 1
+      - name: Wait for MinIO
+        run: |
+          for i in $(seq 1 15); do
+            curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "MinIO did not become ready"
+          docker compose -f test/docker/docker-compose.yml logs
+          exit 1
+      - name: Generate test data
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pyiceberg[s3fs] pyarrow
+          python3 test/scripts/generate_test_data.py
+      - name: Run integration tests
+        env:
+          ICEBERG_SERVER_AVAILABLE: 1
+          # Arrow's DecodeMetadata triggers a container-overflow false positive under ASAN.
+          ASAN_OPTIONS: detect_container_overflow=0
+        run: build/debug/test/unittest "test/sql/*"
+      - name: Docker logs
+        if: failure()
+        working-directory: test/docker
+        run: docker compose logs
+      - name: Teardown
+        if: always()
+        working-directory: test/docker
+        run: docker compose down -v

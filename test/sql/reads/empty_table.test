@@ -1,0 +1,32 @@
+# name: test/sql/reads/empty_table.test
+# description: Scanning an empty Iceberg table
+# group: [reads]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+# Schema is present even with no data files
+query TTTTTT
+DESCRIBE lake.default.empty_table;
+----
+id	INTEGER	YES	NULL	NULL	NULL
+name	VARCHAR	YES	NULL	NULL	NULL
+value	DOUBLE	YES	NULL	NULL	NULL
+created_date	DATE	YES	NULL	NULL	NULL
+ts	TIMESTAMP	YES	NULL	NULL	NULL
+active	BOOLEAN	YES	NULL	NULL	NULL
+
+# Assert emptiness via count(*). TODO: Test actual data
+query I
+SELECT count(*) FROM lake.default.empty_table;
+----
+0

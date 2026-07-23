@@ -1,0 +1,82 @@
+# name: test/sql/reads/nested_types.test
+# description: Nested types (STRUCT, LIST, MAP) scanning and field access
+# group: [reads]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+# Full scan: verify all rows and nested columns are readable
+query I
+SELECT count(*) FROM lake.default.nested_types;
+----
+4
+
+# STRUCT field access
+query ITI
+SELECT id, info.name, info.score FROM lake.default.nested_types ORDER BY id;
+----
+1	Alice	95
+2	Bob	87
+3	Charlie	72
+4	NULL	NULL
+
+# LIST access
+query IT
+SELECT id, tags FROM lake.default.nested_types WHERE id = 1;
+----
+1	[python, data]
+
+query IT
+SELECT id, tags FROM lake.default.nested_types WHERE id = 2;
+----
+2	[java]
+
+query IT
+SELECT id, tags FROM lake.default.nested_types WHERE id = 3;
+----
+3	[rust, cpp, go]
+
+# NULL nested values (tags and metadata are null; struct has null fields)
+query ITT
+SELECT id, tags, info FROM lake.default.nested_types WHERE id = 4;
+----
+4	NULL	{'name': NULL, 'score': NULL}
+
+# MAP access via element_at (returns a list since MAPs may have duplicate keys)
+query IT
+SELECT id, element_at(metadata, 'level') FROM lake.default.nested_types WHERE id = 1;
+----
+1	[5]
+
+query IT
+SELECT id, element_at(metadata, 'xp') FROM lake.default.nested_types WHERE id = 1;
+----
+1	[1200]
+
+query IT
+SELECT id, element_at(metadata, 'level') FROM lake.default.nested_types WHERE id = 2;
+----
+2	[3]
+
+# STRUCT field IS NULL filter
+query I
+SELECT id FROM lake.default.nested_types WHERE info.name IS NULL ORDER BY id;
+----
+4
+
+# STRUCT field IS NOT NULL filter
+query I
+SELECT id FROM lake.default.nested_types WHERE info.name IS NOT NULL ORDER BY id;
+----
+1
+2
+3

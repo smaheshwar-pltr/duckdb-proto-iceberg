@@ -1,0 +1,49 @@
+# name: test/sql/reads/multi_file.test
+# description: Scanning a table built from multiple appends
+# group: [reads]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+query ITI
+SELECT * FROM lake.default.multi_append ORDER BY id;
+----
+1	batch_1	100
+2	batch_1	101
+3	batch_1	102
+4	batch_1	103
+5	batch_1	104
+6	batch_2	200
+7	batch_2	201
+8	batch_2	202
+9	batch_2	203
+10	batch_2	204
+11	batch_3	300
+12	batch_3	301
+13	batch_3	302
+14	batch_3	303
+15	batch_3	304
+
+query I
+SELECT count(*) FROM lake.default.multi_append;
+----
+15
+
+query TII
+SELECT batch, count(*), sum(value)
+FROM lake.default.multi_append
+GROUP BY batch
+ORDER BY batch;
+----
+batch_1	5	510
+batch_2	5	1010
+batch_3	5	1510

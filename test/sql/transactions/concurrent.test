@@ -1,0 +1,34 @@
+# name: test/sql/transactions/concurrent.test
+# description: Concurrent reads across threads
+# group: [transactions]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+concurrentloop threadid 0 8
+
+query I
+SELECT count(*) FROM lake.default.test_table;
+----
+5
+
+query I
+SELECT count(*) FROM lake.default.all_types;
+----
+3
+
+query I
+SELECT count(*) FROM lake.default.nested_types;
+----
+4
+
+endloop

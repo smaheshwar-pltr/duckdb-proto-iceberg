@@ -1,0 +1,77 @@
+# name: test/sql/catalog/default_schema.test
+# description: Default schema resolution: implicit "default" fallback and explicit DEFAULT_SCHEMA option
+# group: [catalog]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+# --- Without DEFAULT_SCHEMA: falls back to "default" namespace ---
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+# Unqualified table resolves to 'default' namespace
+query I
+SELECT count(*) FROM lake.test_table;
+----
+5
+
+# DuckDB's "main" schema redirects to "default" namespace
+query I
+SELECT count(*) FROM lake.main.test_table;
+----
+5
+
+statement ok
+DETACH lake;
+
+# --- With DEFAULT_SCHEMA 'testing': overrides the fallback ---
+
+# Attach with default_schema pointed at 'testing' (not 'default')
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181', DEFAULT_SCHEMA 'testing');
+
+# Fully qualified query against 'testing' works
+query IT
+SELECT id, value FROM lake.testing.sample ORDER BY id;
+----
+1	x
+2	y
+3	z
+
+# Unqualified schema resolves to 'testing' via default_schema
+query IT
+SELECT id, value FROM lake.sample ORDER BY id;
+----
+1	x
+2	y
+3	z
+
+# DuckDB's "main" schema redirects to configured default_schema ('testing'), not 'default'
+query IT
+SELECT id, value FROM lake.main.sample ORDER BY id;
+----
+1	x
+2	y
+3	z
+
+# Tables in 'default' namespace are still reachable with explicit qualification
+query I
+SELECT count(*) FROM lake.default.test_table;
+----
+5
+
+# But 'default' tables are NOT found via unqualified lookup as default_schema is 'testing'
+statement error
+SELECT * FROM lake.test_table;
+----
+does not exist
+
+statement ok
+DETACH lake;

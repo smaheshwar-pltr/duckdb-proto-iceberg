@@ -1,0 +1,50 @@
+diff --git a/src/include/duckdb/main/profiling_utils.hpp b/src/include/duckdb/main/profiling_utils.hpp
+--- a/src/include/duckdb/main/profiling_utils.hpp
++++ b/src/include/duckdb/main/profiling_utils.hpp
+@@ -27,9 +27,7 @@
+ // Top level query metrics
+ struct QueryMetrics {
+ public:
+-    QueryMetrics() {
+-        Reset();
+-    }
++    QueryMetrics(); // Patch: out-of-line (C++23/libc++)
+ 
+ 	ProfilingInfo query_global_info;
+ 
+@@ -49,15 +47,8 @@
+         return static_cast<double>(active_metrics[GetMetricsIndex(metric)]) / 1e9;
+     }
+ 
+-    void Reset() {
+-        for(idx_t i = 0; i < ACTIVELY_TRACKED_METRICS; i++) {
+-            active_metrics[i] = 0;
+-        }
++    void Reset(); // Patch: out-of-line (C++23/libc++)
+ 
+-        latency_timer.reset();
+-        query_name = "";
+-    }
+-
+     void Merge(const QueryMetrics &other) {
+         for(idx_t i = 0; i < ACTIVELY_TRACKED_METRICS; i++) {
+             active_metrics[i] += other.active_metrics[i];
+@@ -156,4 +147,18 @@
+ 	bool is_active;
+ };
+ 
++// Patch: QueryMetrics methods defined here, where ActiveTimer is complete.
++inline QueryMetrics::QueryMetrics() {
++    Reset();
+ }
++
++inline void QueryMetrics::Reset() {
++    for(idx_t i = 0; i < ACTIVELY_TRACKED_METRICS; i++) {
++        active_metrics[i] = 0;
++    }
++
++    latency_timer.reset();
++    query_name = "";
++}
++
++}

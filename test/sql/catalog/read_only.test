@@ -1,0 +1,74 @@
+# name: test/sql/catalog/read_only.test
+# description: Write operations are rejected
+# group: [catalog]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+# --- Errors from our extension (BinderException / NotImplementedException) ---
+
+statement error
+CREATE TABLE lake.default.new_table (id INTEGER, name VARCHAR);
+----
+read-only
+
+statement error
+CREATE TABLE lake.default.new_table AS SELECT 1 AS id;
+----
+read-only
+
+statement error
+INSERT INTO lake.default.test_table VALUES (99, 'test', 1.0);
+----
+read-only
+
+statement error
+DROP TABLE lake.default.test_table;
+----
+read-only
+
+statement error
+ALTER TABLE lake.default.test_table ADD COLUMN extra INTEGER;
+----
+read-only
+
+statement error
+CREATE SCHEMA lake.new_schema;
+----
+read-only
+
+statement error
+DROP SCHEMA lake.default;
+----
+read-only
+
+statement error
+CREATE VIEW lake.default.my_view AS SELECT 1;
+----
+read-only
+
+# --- Errors from DuckDB itself (caught before reaching our catalog) ---
+
+statement error
+CREATE INDEX my_idx ON lake.default.test_table (id);
+----
+can only create an index
+
+statement error
+UPDATE lake.default.test_table SET value = 0.0 WHERE id = 1;
+----
+Can only update
+
+statement error
+DELETE FROM lake.default.test_table WHERE id = 1;
+----
+Can only delete

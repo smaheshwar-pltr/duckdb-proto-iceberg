@@ -6,3 +6,8 @@
 	path = extension-ci-tools
 	url = https://github.com/duckdb/extension-ci-tools
 	branch = main
+# TODO: Switch to upstream apache/iceberg-cpp once requirements merged
+[submodule "third_party/iceberg-cpp"]
+	path = third_party/iceberg-cpp
+	url = https://github.com/smaheshwar-pltr/iceberg-cpp.git
+	branch = duckdb-iceberg

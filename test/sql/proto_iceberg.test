@@ -1,0 +1,8 @@
+# name: test/sql/proto_iceberg.test
+# description: extension loads correctly
+# group: [sql]
+
+require proto_iceberg
+
+statement ok
+SELECT 1;

@@ -1,0 +1,40 @@
+# name: test/sql/catalog/multi_catalog.test
+# description: Two TYPE ICEBERG catalogs attached simultaneously
+# group: [catalog]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+statement ok
+ATTACH '' AS lake1 (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+statement ok
+ATTACH '' AS lake2 (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+query I
+SELECT count(*) FROM lake1.default.test_table;
+----
+5
+
+query I
+SELECT count(*) FROM lake2.default.test_table;
+----
+5
+
+# Cross-catalog join works (test_table.id <-> orders.customer_id).
+query I
+SELECT count(*) FROM lake1.default.test_table a JOIN lake2.default.orders b ON a.id = b.customer_id;
+----
+6
+
+statement ok
+DETACH lake1;
+
+statement ok
+DETACH lake2;

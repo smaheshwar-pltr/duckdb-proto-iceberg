@@ -1,0 +1,129 @@
+# name: test/sql/catalog/show_tables.test
+# description: Table listing, SHOW ALL TABLES, and missing table/schema errors
+# group: [catalog]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+# Verify specific expected tables are visible via information_schema
+query I
+SELECT table_name FROM information_schema.tables
+WHERE table_catalog = 'lake' AND table_schema = 'default'
+AND table_name IN ('test_table', 'all_types', 'empty_table', 'schema_evolution', 'pinned_schema')
+ORDER BY table_name;
+----
+all_types
+empty_table
+pinned_schema
+schema_evolution
+test_table
+
+# SHOW ALL TABLES includes tables from both namespaces
+query TTT
+SELECT database, schema, name FROM (SHOW ALL TABLES)
+WHERE database = 'lake' AND name IN ('test_table', 'sample')
+ORDER BY schema, name;
+----
+lake	default	test_table
+lake	testing	sample
+
+# Selecting from a non-existent table fails
+statement error
+SELECT * FROM lake.default.this_table_does_not_exist;
+----
+does not exist
+
+# Querying a table in a non-existent namespace
+statement error
+SELECT * FROM lake.nonexistent_schema.some_table;
+----
+does not exist
+
+# A table that exists in 'default' is not found under a different namespace
+statement error
+SELECT * FROM lake.wrong_namespace.test_table;
+----
+does not exist
+
+# No tables in a nonexistent schema
+statement ok
+USE lake.listing_nonexistent_schema;
+
+query I
+SELECT count(*) FROM (SHOW TABLES);
+----
+0
+
+statement ok
+USE memory;
+
+# Debug log: LoadTable is called for the missing table
+statement ok
+CALL enable_logging(level := 'debug');
+
+statement ok
+CALL truncate_duckdb_logs();
+
+statement error
+SELECT * FROM lake.default.another_missing_table;
+----
+does not exist
+
+# Negative table cache prevents two REST calls here
+query I
+SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%LoadTable%another_missing_table%';
+----
+1
+
+# Before resolution: SHOW ALL TABLES reports the placeholder column.
+query TT
+SELECT column_names, column_types FROM (SHOW ALL TABLES)
+WHERE database = 'lake' AND schema = 'default' AND name = 'empty_table';
+----
+[__]	[UNKNOWN]
+
+# Before resolution: duckdb_columns() reports the placeholder column.
+query TT
+SELECT column_name, data_type FROM duckdb_columns()
+WHERE database_name = 'lake' AND schema_name = 'default' AND table_name = 'empty_table';
+----
+__	UNKNOWN
+
+# Resolve (DESCRIBE) and re-list within one txn so they share the same per-transaction table cache.
+statement ok
+BEGIN;
+
+statement ok
+DESCRIBE lake.default.empty_table;
+
+# After resolution: real columns now appear in SHOW ALL TABLES.
+query TT
+SELECT column_names, column_types FROM (SHOW ALL TABLES)
+WHERE database = 'lake' AND schema = 'default' AND name = 'empty_table';
+----
+[id, name, value, created_date, ts, active]	[INTEGER, VARCHAR, DOUBLE, DATE, TIMESTAMP, BOOLEAN]
+
+# After resolution: real columns now appear in duckdb_columns().
+query TT
+SELECT column_name, data_type FROM duckdb_columns()
+WHERE database_name = 'lake' AND schema_name = 'default' AND table_name = 'empty_table'
+ORDER BY column_index;
+----
+id	INTEGER
+name	VARCHAR
+value	DOUBLE
+created_date	DATE
+ts	TIMESTAMP
+active	BOOLEAN
+
+statement ok
+COMMIT;

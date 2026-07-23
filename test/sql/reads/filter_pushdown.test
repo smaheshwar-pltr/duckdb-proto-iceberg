@@ -1,0 +1,168 @@
+# name: test/sql/reads/filter_pushdown.test
+# description: Verify filter pushdown via iceberg-cpp scan planning
+# group: [reads]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+statement ok
+CALL enable_logging(level := 'debug');
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+# multi_partition: two partition columns (region, year) — 9 files total
+# 3 regions (us, eu, asia) x 3 years (2023, 2024, 2025), 2 rows each = 18 rows
+
+# Baseline: unfiltered scan reads all 18 rows
+query I
+SELECT count(*) FROM lake.default.multi_partition;
+----
+18
+
+# ComplexFilterPushdown: WHERE-clause filters prune data files
+
+# Single equality: region = 'asia' -> 3 files (one per year)
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.multi_partition WHERE region = 'asia';
+----
+6
+
+query I
+SELECT message FROM duckdb_logs() WHERE message LIKE 'proto_iceberg:%' AND message LIKE '%== "asia"%';
+----
+proto_iceberg: planned 3 data file(s) for 'default.multi_partition' with filter: ref(name="region") == "asia"
+
+# AND across both partition columns: region = 'eu' AND year = 2024 -> 1 file
+statement ok
+CALL truncate_duckdb_logs();
+
+query II
+SELECT id, revenue FROM lake.default.multi_partition WHERE region = 'eu' AND year = 2024 ORDER BY id;
+----
+9	900.0
+10	1000.0
+
+query I
+SELECT message FROM duckdb_logs() WHERE message LIKE 'proto_iceberg:%' AND message LIKE '%== "eu" and%' AND message LIKE '%== 2024%';
+----
+proto_iceberg: planned 1 data file(s) for 'default.multi_partition' with filter: (ref(name="region") == "eu" and ref(name="year") == 2024)
+
+# NOT EQUAL: region != 'us' -> 6 files (eu + asia)
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.multi_partition WHERE region != 'us';
+----
+12
+
+query I
+SELECT message FROM duckdb_logs() WHERE message LIKE 'proto_iceberg:%' AND message LIKE '%!= "us"%';
+----
+proto_iceberg: planned 6 data file(s) for 'default.multi_partition' with filter: ref(name="region") != "us"
+
+# DECIMAL filter: tag > 5.00 prunes from 9 to 7 files
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.multi_partition WHERE tag > 5.00;
+----
+13
+
+query I
+SELECT message FROM duckdb_logs() WHERE message LIKE 'proto_iceberg:%' AND message LIKE '%> 5.00%';
+----
+proto_iceberg: planned 7 data file(s) for 'default.multi_partition' with filter: ref(name="tag") > 5.00
+
+# AND with DECIMAL: region = 'us' AND tag > 5.00 prunes to 1 file
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.multi_partition WHERE region = 'us' AND tag > 5.00;
+----
+1
+
+query I
+SELECT message FROM duckdb_logs() WHERE message LIKE 'proto_iceberg:%' AND message LIKE '%== "us"%' AND message LIKE '%> 5.00%';
+----
+proto_iceberg: planned 1 data file(s) for 'default.multi_partition' with filter: (ref(name="region") == "us" and ref(name="tag") > 5.00)
+
+# Dynamic filter from join build side
+# The dimension filter (t.name = 'Alice' -> id=1) is pushed from the build side
+# into multi_partition as a dynamic filter on the join key.
+
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.multi_partition mp
+JOIN lake.default.test_table t ON mp.id = t.id
+WHERE t.name = 'Alice';
+----
+1
+
+# The dynamic filter pushed id=1 from the build side, pruning to 1 file
+query I
+SELECT message FROM duckdb_logs() WHERE message LIKE 'proto_iceberg: planned%' AND message LIKE '%multi_partition%' AND message LIKE '%== 1%';
+----
+proto_iceberg: planned 1 data file(s) for 'default.multi_partition' with filter: ref(name="id") == 1
+
+# OR / IN / (OR)+AND can't become simple TableFilters, so DuckDB re-pushes them as residuals and the exact
+# filter string and plan count are internal artifacts. Assert the pruning outcome (rows + file count), not those.
+
+# OR: region = 'us' OR region = 'eu' -> prunes to 6 of 9 files
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.multi_partition WHERE region = 'us' OR region = 'eu';
+----
+12
+
+query I
+SELECT count(*) FROM (SELECT DISTINCT 1 FROM duckdb_logs()
+  WHERE message LIKE 'proto_iceberg: planned 6 data file(s) for ''default.multi_partition''%');
+----
+1
+
+# AND + OR: (region = 'us' OR region = 'asia') AND year = 2025 -> prunes to 2 of 9 files
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.multi_partition WHERE (region = 'us' OR region = 'asia') AND year = 2025;
+----
+4
+
+query I
+SELECT count(*) FROM (SELECT DISTINCT 1 FROM duckdb_logs()
+  WHERE message LIKE 'proto_iceberg: planned 2 data file(s) for ''default.multi_partition''%');
+----
+1
+
+# IN list: region IN ('eu', 'asia') -> prunes to 6 of 9 files
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.multi_partition WHERE region IN ('eu', 'asia');
+----
+12
+
+query I
+SELECT count(*) FROM (SELECT DISTINCT 1 FROM duckdb_logs()
+  WHERE message LIKE 'proto_iceberg: planned 6 data file(s) for ''default.multi_partition''%');
+----
+1

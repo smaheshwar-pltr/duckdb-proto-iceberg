@@ -21,7 +21,6 @@ using constants::kRedactedSecrets;
 using constants::kToken;
 
 const string kConfigProvider = "config";
-const string kHttpfsExtension = "httpfs";
 const string kIcebergExtensionName = "proto_iceberg";
 const string kStorageExtensionName = "iceberg";
 
@@ -75,8 +74,6 @@ void RegisterIcebergSecretFunction(ExtensionLoader &loader) {
 
 void LoadInternal(ExtensionLoader &loader) {
 	auto &instance = loader.GetDatabaseInstance();
-
-	ExtensionHelper::AutoLoadExtension(instance, kHttpfsExtension);
 
 	RegisterIcebergFileIO();
 

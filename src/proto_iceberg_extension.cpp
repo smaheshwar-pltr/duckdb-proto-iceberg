@@ -44,7 +44,7 @@ unique_ptr<BaseSecret> CreateIcebergSecret(ClientContext &, CreateSecretInput &i
 	for (auto &[key, value] : input.options) {
 		result->secret_map[key] = value;
 	}
-	result->redact_keys.insert_range(kRedactedSecrets);
+	result->redact_keys.insert(kRedactedSecrets.begin(), kRedactedSecrets.end());
 	return result;
 }
 

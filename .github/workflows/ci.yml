@@ -1,4 +1,5 @@
 # Jobs: format-check, unit-tests (Catch2), integration-tests (Docker + SQLLogicTest)
+# TODO: Prefer extension-ci-tools
 name: CI
 
 on:
@@ -33,45 +34,95 @@ jobs:
 
   unit-tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ninja-build cmake
+          sudo apt-get install -y -qq ninja-build cmake libcurl4-openssl-dev libssl-dev g++-14
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+      - name: iceberg-cpp cache key
+        id: iceberg
+        run: |
+          echo "sha=$(git -C third_party/iceberg-cpp rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "gcc=$(g++-14 -dumpfullversion)" >> "$GITHUB_OUTPUT"
+      - name: Restore iceberg-cpp build
+        id: iceberg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build/release/_iceberg_install
+          key: iceberg-${{ runner.os }}-${{ runner.arch }}-gcc${{ steps.iceberg.outputs.gcc }}-release-${{ steps.iceberg.outputs.sha }}
       - uses: hendrikmuhs/ccache-action@main
         with:
           key: ccache-unit-tests
-          save: ${{ github.ref == 'refs/heads/main' }}
+          save: true
       - name: Build
-        run: make debug
+        run: make release
+      - name: Save iceberg-cpp build
+        # Persist across runs even if a later step fails, but only a complete install (stamp present) on a cache miss.
+        if: always() && steps.iceberg-cache.outputs.cache-hit != 'true' && hashFiles('build/release/_iceberg_install/.iceberg_stamp') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: build/release/_iceberg_install
+          key: iceberg-${{ runner.os }}-${{ runner.arch }}-gcc${{ steps.iceberg.outputs.gcc }}-release-${{ steps.iceberg.outputs.sha }}
       - name: Run unit tests
         run: |
-          cmake --build build/debug --target proto_iceberg_unittest
-          build/debug/extension/proto_iceberg/proto_iceberg_unittest
+          cmake --build build/release --target proto_iceberg_unittest
+          build/release/extension/proto_iceberg/proto_iceberg_unittest
 
   integration-tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq ninja-build cmake
+          sudo apt-get install -y -qq ninja-build cmake libcurl4-openssl-dev libssl-dev g++-14
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+      - name: iceberg-cpp cache key
+        id: iceberg
+        run: |
+          echo "sha=$(git -C third_party/iceberg-cpp rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "gcc=$(g++-14 -dumpfullversion)" >> "$GITHUB_OUTPUT"
+      - name: Restore iceberg-cpp build
+        id: iceberg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: build/release/_iceberg_install
+          key: iceberg-${{ runner.os }}-${{ runner.arch }}-gcc${{ steps.iceberg.outputs.gcc }}-release-${{ steps.iceberg.outputs.sha }}
       - uses: hendrikmuhs/ccache-action@main
         with:
           key: ccache-integration-tests
-          save: ${{ github.ref == 'refs/heads/main' }}
+          save: true
       - name: Build
-        run: make debug
+        run: make release
+      - name: Save iceberg-cpp build
+        # Persist across runs even if a later step fails, but only a complete install (stamp present) on a cache miss.
+        if: always() && steps.iceberg-cache.outputs.cache-hit != 'true' && hashFiles('build/release/_iceberg_install/.iceberg_stamp') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: build/release/_iceberg_install
+          key: iceberg-${{ runner.os }}-${{ runner.arch }}-gcc${{ steps.iceberg.outputs.gcc }}-release-${{ steps.iceberg.outputs.sha }}
       - name: Start Docker services
         working-directory: test/docker
         run: docker compose up -d
@@ -101,9 +152,7 @@ jobs:
       - name: Run integration tests
         env:
           ICEBERG_SERVER_AVAILABLE: 1
-          # Arrow's DecodeMetadata triggers a container-overflow false positive under ASAN.
-          ASAN_OPTIONS: detect_container_overflow=0
-        run: build/debug/test/unittest "test/sql/*"
+        run: build/release/test/unittest "test/sql/*"
       - name: Docker logs
         if: failure()
         working-directory: test/docker

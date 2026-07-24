@@ -147,7 +147,7 @@ jobs:
       - name: Generate test data
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install pyiceberg[s3fs] pyarrow
+          python3 -m pip install "pyiceberg[s3fs,pyiceberg-core]==0.11.1" "pyarrow==25.0.0"
           python3 test/scripts/generate_test_data.py
       - name: Run integration tests
         env:

@@ -8,6 +8,8 @@ require proto_iceberg
 
 require httpfs
 
+require parquet
+
 statement ok
 CALL enable_logging(level := 'debug');
 

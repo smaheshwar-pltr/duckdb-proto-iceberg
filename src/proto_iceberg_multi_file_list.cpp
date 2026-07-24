@@ -71,7 +71,7 @@ iceberg::Result<ProtoIcebergScanPlan> ProtoIcebergMultiFileList::PlanFilesImpl(c
 	if (auto *pinned = std::get_if<PinnedRead>(&info.mode)) {
 		scan_builder->UseSnapshot(pinned->snapshot_id);
 	}
-	std::shared_ptr<iceberg::Expression> filter{};
+	std::shared_ptr<iceberg::Expression> filter {};
 	if (!filters.filters.empty()) {
 		filter = adapters::TranslateOrWidenFilters(filters, *info.schema);
 	}
@@ -82,7 +82,7 @@ iceberg::Result<ProtoIcebergScanPlan> ProtoIcebergMultiFileList::PlanFilesImpl(c
 	ICEBERG_ASSIGN_OR_RAISE(auto scan, scan_builder->Build());
 	ICEBERG_ASSIGN_OR_RAISE(auto tasks, scan->PlanFiles());
 
-	ProtoIcebergScanPlan plan{};
+	ProtoIcebergScanPlan plan {};
 	for (const auto &task : tasks) {
 		if (!task->delete_files().empty()) {
 			return iceberg::NotImplemented("Reading delete files is not yet supported");
@@ -144,7 +144,7 @@ unique_ptr<NodeStatistics> ProtoIcebergMultiFileList::GetCardinality(ClientConte
 
 unique_ptr<ProtoIcebergMultiFileList>
 ProtoIcebergMultiFileList::CreateFilteredList(const TableFilterSet &new_filters) const {
-	TableFilterSet combined{};
+	TableFilterSet combined {};
 	auto append = [&combined](const TableFilterSet &src) {
 		for (auto &[col_id, f] : src.filters) {
 			combined.PushFilter(ColumnIndex(col_id), f->Copy());
@@ -164,7 +164,8 @@ ProtoIcebergMultiFileList::ComplexFilterPushdown(ClientContext &, const MultiFil
 		return nullptr;
 	}
 
-	DUCKDB_LOG_DEBUG(context_, "proto_iceberg: ComplexFilterPushdown applied %zu filter(s)", filter_set->filters.size());
+	DUCKDB_LOG_DEBUG(context_, "proto_iceberg: ComplexFilterPushdown applied %zu filter(s)",
+	                 filter_set->filters.size());
 	return CreateFilteredList(*filter_set);
 }
 
@@ -177,7 +178,7 @@ ProtoIcebergMultiFileList::DynamicFilterPushdown(ClientContext &, const MultiFil
 	}
 
 	// Skip filters already pushed down.
-	TableFilterSet new_filters{};
+	TableFilterSet new_filters {};
 	for (auto &[filter_idx, table_filter] : filters.filters) {
 		if (filter_idx >= column_ids.size()) {
 			continue;

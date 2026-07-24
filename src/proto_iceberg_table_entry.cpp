@@ -26,6 +26,7 @@ namespace {
 const string kParquetScan = "parquet_scan";
 const string kTableScanName = "proto_iceberg_table_scan";
 const string kParquetExtension = "parquet";
+const string kHttpfsExtension = "httpfs";
 
 namespace s3 = constants::s3;
 
@@ -185,6 +186,8 @@ TableFunction ProtoIcebergTableEntry::GetScanFunction(ClientContext &context, un
 	auto &ic_catalog = catalog.Cast<ProtoIcebergCatalog>();
 	auto &txn = ProtoIcebergTransaction::Get(context, ic_catalog.GetAttached());
 
+	// httpfs provides the S3 secret type; load it before creating the scoped S3 secret.
+	ExtensionHelper::AutoLoadExtension(DatabaseInstance::GetDatabase(context), kHttpfsExtension);
 	CreateScopedS3Secret(context, txn, ic_catalog.GetCatalogURI(), scan_info_->table);
 
 	auto iceberg_scan = ConfigureIcebergScan(context, scan_info_);

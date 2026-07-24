@@ -104,7 +104,7 @@ endif()
 if(NOT ICEBERG_SKIP_BUILD)
     message(STATUS "[proto_iceberg] Configuring iceberg-cpp (isolated build)...")
     execute_process(
-        COMMAND ${CMAKE_COMMAND} -G "${CMAKE_GENERATOR}"
+        COMMAND ${CMAKE_COMMAND} --compile-no-warning-as-error -G "${CMAKE_GENERATOR}"
             ${ICEBERG_CMAKE_ARGS} -S "${ICEBERG_SOURCE_DIR}" -B "${ICEBERG_BUILD_DIR}"
         RESULT_VARIABLE ICEBERG_CONFIGURE_RESULT
     )

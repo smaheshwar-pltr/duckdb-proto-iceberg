@@ -13,15 +13,16 @@ concurrency:
 
 jobs:
   duckdb-stable-build:
-    # Disabled: iceberg-cpp's transitive dependencies (Arrow, cpr, AWS SDK) don't
-    # build cleanly on DuckDB's cross-platform CI toolchain yet.
-    if: false
+    # SPIKE: feasibility test — build iceberg-cpp under extension-ci-tools manylinux, linux_amd64 only, build-only.
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5.1
     with:
       duckdb_version: v1.5.1
       ci_tools_version: v1.5.1
       extension_name: proto_iceberg
+      exclude_archs: 'linux_amd64_musl;linux_arm64;linux_arm64_musl;osx_amd64;osx_arm64;windows_amd64;windows_amd64_mingw;windows_arm64;wasm_mvp;wasm_eh;wasm_threads'
+      extra_toolchains: 'python3'
+      skip_tests: true
 
   code-quality-check:
     name: Code Quality Check

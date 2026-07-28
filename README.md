@@ -8,28 +8,18 @@ See [DuckDB's extension template README](https://github.com/duckdb/extension-tem
 
 ## Architecture
 
-Our catalog system has three levels — catalog, schema, and table. We map these to Iceberg's REST catalog, namespaces, and tables respectively.
-
-| Component | Description                                                                                                                                                                                                                                                                |
-|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `ProtoIcebergCatalog` | Created at `ATTACH` time with a REST endpoint and credentials. Creates schema entries optimistically — namespace existence is only verified when a table load fails.                                                                                                       |
-| `ProtoIcebergSchemaEntry` | One per Iceberg namespace. Lists and looks up tables via `iceberg-cpp`'s REST catalog client. On lookup, loads the table's metadata, resolves the scan mode (current or snapshot-pinned), converts the Iceberg schema to DuckDB column definitions, and stores the result. |
-| `ProtoIcebergTableEntry` | One per table. Carries the pre-resolved scan mode and schema. `GetScanFunction()` sets up per-table S3 credentials from `iceberg-cpp`'s table metadata (credential vending) and wires up the scan function backed by a DuckDB `parquet_scan`.                              |
-| `ProtoIcebergTransaction` | Captures the transaction's start timestamp, which pins reads to specific Iceberg snapshots. Owns an in-memory store of schema entries (avoiding repeated REST calls within a transaction), and tracks temporary S3 secrets for cleanup at commit.                          |
-| `ProtoIcebergScanInfo` | A `{table, scan_mode, schema}` structure passed from the catalog layer down to the scan layer. The scan mode is either the current table, or pinned to a specific snapshot ID.                                                                                             |
-| `ProtoIcebergMultiFileList` | Discovers which Parquet files to read by delegating to `iceberg-cpp`'s scan planning. DuckDB's `WHERE`-clause filters are translated to `iceberg-cpp` expressions, so that irrelevant files are pruned at plan time.                                                       |
-| `ProtoIcebergMultiFileReader` | Resolves the Iceberg schema for the scan and instructs DuckDB to match Parquet columns by Iceberg field ID (*not* by name, which would break schema evolution and column renaming).                                                                                        |
+Our catalog system has three levels: catalog, schema, and table. These are mapped to Iceberg's REST catalog, namespaces, and tables respectively.
 
 ```
 DuckDB Engine
- └─ ProtoIcebergCatalog              (wraps iceberg::rest::RestCatalog)
-     ├─ ProtoIcebergSchemaEntry       (wraps Iceberg namespace, owns table store)
-     │   └─ ProtoIcebergTableEntry    (wraps Iceberg table)
-     │       └─ parquet_scan           (via MultiFileReader pattern)
-     │           ├─ ProtoIcebergMultiFileReader  (schema via field-ID mapping)
-     │           └─ ProtoIcebergMultiFileList    (lazy file discovery + filter pushdown)
-     └─ ProtoIcebergTransactionManager
-         └─ ProtoIcebergTransaction   (schema store + start timestamp + secret tracking)
+ ├─ ProtoIcebergCatalog                           (wraps iceberg::rest::RestCatalog)
+ │   └─ ProtoIcebergSchemaEntry                   (Iceberg namespace + table store)
+ │       └─ ProtoIcebergTableEntry                (wraps Iceberg table)
+ │           └─ parquet_scan                      (via MultiFileReader API)
+ │               └─ ProtoIcebergMultiFileReader   (creates file list + field-ID schema binding)
+ │                   └─ ProtoIcebergMultiFileList (lazy file planning + filter pushdown)
+ └─ ProtoIcebergTransactionManager
+     └─ ProtoIcebergTransaction                   (schema store + timestamp + secrets)
 ```
 
 ## Building
@@ -49,7 +39,7 @@ The first build takes longer, because iceberg-cpp and its vendored dependencies 
 
 ### Updating iceberg-cpp
 
-Submodule updates are detected automatically — just build after pulling:
+Submodule updates are detected automatically, after pulling:
 
 ```sh
 git submodule update --init --recursive

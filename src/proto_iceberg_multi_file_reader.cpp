@@ -1,7 +1,7 @@
 #include "proto_iceberg_multi_file_reader.hpp"
 #include "proto_iceberg_multi_file_list.hpp"
 #include "proto_iceberg_scan_info.hpp"
-#include "adapters.hpp"
+#include "conversion.hpp"
 
 #include "iceberg/schema.h"
 
@@ -28,7 +28,7 @@ bool ProtoIcebergMultiFileReader::Bind(MultiFileOptions &options, MultiFileList 
                                        MultiFileReaderBindData &bind_data) {
 	// Configure bind schema with field-ID identifiers for column mapping.
 	const auto &list = files.Cast<ProtoIcebergMultiFileList>();
-	bind_data.schema = adapters::BuildColumnList(*list.GetScanSchema());
+	bind_data.schema = conversion::BuildColumnList(*list.GetScanSchema());
 	for (const auto &col : bind_data.schema) {
 		names.push_back(col.name);
 		return_types.push_back(col.type);

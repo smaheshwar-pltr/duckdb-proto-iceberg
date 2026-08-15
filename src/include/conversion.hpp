@@ -1,4 +1,4 @@
-/// Adapter utilities for bridging iceberg-cpp and DuckDB types.
+/// Conversion utilities between iceberg-cpp and DuckDB types, values and filters.
 
 #pragma once
 
@@ -21,7 +21,7 @@ class TableFilter;
 class TableFilterSet;
 } // namespace duckdb
 
-namespace duckdb::adapters {
+namespace duckdb::conversion {
 
 /// Constructs an iceberg-cpp Namespace from a single-level namespace name.
 inline iceberg::Namespace GetNamespace(std::string_view namespace_name) {
@@ -65,4 +65,4 @@ inline iceberg::TableIdentifier GetTableIdentifier(std::string_view namespace_na
 [[nodiscard]] std::shared_ptr<iceberg::Expression> TranslateOrWidenFilter(const TableFilter &filter,
                                                                           const iceberg::SchemaField &field);
 
-} // namespace duckdb::adapters
+} // namespace duckdb::conversion

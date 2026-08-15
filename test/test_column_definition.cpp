@@ -1,5 +1,5 @@
 #include "catch.hpp"
-#include "adapters.hpp"
+#include "conversion.hpp"
 
 #include "duckdb/common/multi_file/multi_file_data.hpp"
 #include "duckdb/parser/column_definition.hpp"
@@ -8,7 +8,7 @@
 #include "iceberg/type.h"
 
 using namespace duckdb;
-using namespace duckdb::adapters;
+using namespace duckdb::conversion;
 
 namespace {
 

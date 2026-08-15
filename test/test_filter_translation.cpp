@@ -1,5 +1,5 @@
 #include "catch.hpp"
-#include "adapters.hpp"
+#include "conversion.hpp"
 
 #include "duckdb/planner/filter/constant_filter.hpp"
 #include "duckdb/planner/filter/null_filter.hpp"
@@ -14,7 +14,7 @@
 #include "iceberg/expression/expression.h"
 
 using namespace duckdb;
-using namespace duckdb::adapters;
+using namespace duckdb::conversion;
 
 namespace {
 

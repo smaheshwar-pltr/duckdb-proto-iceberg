@@ -1,5 +1,5 @@
 #include "proto_iceberg_multi_file_list.hpp"
-#include "adapters.hpp"
+#include "conversion.hpp"
 #include "unwrap.hpp"
 
 #include "duckdb/common/exception.hpp"
@@ -73,7 +73,7 @@ iceberg::Result<ProtoIcebergScanPlan> ProtoIcebergMultiFileList::PlanFilesImpl(c
 	}
 	std::shared_ptr<iceberg::Expression> filter {};
 	if (!filters.filters.empty()) {
-		filter = adapters::TranslateOrWidenFilters(filters, *info.schema);
+		filter = conversion::TranslateOrWidenFilters(filters, *info.schema);
 	}
 	if (filter) {
 		scan_builder->Filter(filter);

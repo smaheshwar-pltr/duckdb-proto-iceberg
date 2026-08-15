@@ -1,4 +1,4 @@
-#include "adapters.hpp"
+#include "conversion.hpp"
 
 #include "duckdb/planner/table_filter.hpp"
 #include "duckdb/planner/filter/constant_filter.hpp"
@@ -16,7 +16,7 @@
 
 #include <ranges>
 
-namespace duckdb::adapters {
+namespace duckdb::conversion {
 namespace {
 
 void PopulateChildFieldIds(MultiFileColumnDefinition &col_def, const iceberg::Type &type) {
@@ -269,4 +269,4 @@ std::shared_ptr<iceberg::Expression> TranslateOrWidenFilter(const TableFilter &f
 	}
 }
 
-} // namespace duckdb::adapters
+} // namespace duckdb::conversion

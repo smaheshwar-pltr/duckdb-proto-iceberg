@@ -1,12 +1,12 @@
 #define CATCH_CONFIG_MAIN
 #include "catch.hpp"
-#include "adapters.hpp"
+#include "conversion.hpp"
 
 #include "iceberg/type.h"
 #include "iceberg/schema_field.h"
 
 using namespace duckdb;
-using namespace duckdb::adapters;
+using namespace duckdb::conversion;
 
 TEST_CASE("boolean", "[type_mapping]") {
 	REQUIRE(MapIcebergType(*iceberg::boolean()) == LogicalType::BOOLEAN);

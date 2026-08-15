@@ -1,4 +1,4 @@
-#include "adapters.hpp"
+#include "conversion.hpp"
 #include "unwrap.hpp"
 #include "proto_iceberg_schema_entry.hpp"
 #include "proto_iceberg_catalog.hpp"
@@ -31,7 +31,7 @@ unique_ptr<ProtoIcebergTableEntry> CreateTableEntry(ProtoIcebergCatalog &ic_cata
 	auto create_info = make_uniq<CreateTableInfo>();
 	create_info->table = entry_name;
 	for (auto &field : scan_info->schema->fields()) {
-		ColumnDefinition col(string(field.name()), adapters::MapIcebergType(*field.type()));
+		ColumnDefinition col(string(field.name()), conversion::MapIcebergType(*field.type()));
 		if (!field.doc().empty()) {
 			col.SetComment(Value(string(field.doc())));
 		}
@@ -79,7 +79,7 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIceb
                                                                        Mutex<TableState>::Guard &tables) {
 	auto &ic_catalog = GetIcebergCatalog();
 	DUCKDB_LOG_DEBUG(context, "proto_iceberg: LoadTable '%s.%s'", name, table_name);
-	auto table_result = ic_catalog.GetRestCatalog().LoadTable(adapters::GetTableIdentifier(name, table_name));
+	auto table_result = ic_catalog.GetRestCatalog().LoadTable(conversion::GetTableIdentifier(name, table_name));
 
 	// Return no entry on LoadTable NotFound exceptions; surface any other error as an exception.
 	if (!table_result.has_value()) {
@@ -183,7 +183,7 @@ void ProtoIcebergSchemaEntry::Scan(ClientContext &context, CatalogType type,
 	// for every table during SHOW ALL TABLES; LoadTable is deferred to LookupEntry.
 	if (!tables->listed) {
 		DUCKDB_LOG_DEBUG(context, "proto_iceberg: ListTables in namespace '%s'", name);
-		auto result = ic_catalog.GetRestCatalog().ListTables(adapters::GetNamespace(name));
+		auto result = ic_catalog.GetRestCatalog().ListTables(conversion::GetNamespace(name));
 		if (!result.has_value() && result.error().kind == iceberg::ErrorKind::kNoSuchNamespace) {
 			// An optimistically-created schema that doesn't exist; nothing to list.
 			MarkNamespaceNotFound();

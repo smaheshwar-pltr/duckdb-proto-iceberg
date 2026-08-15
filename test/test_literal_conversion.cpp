@@ -1,5 +1,5 @@
 #include "catch.hpp"
-#include "adapters.hpp"
+#include "conversion.hpp"
 
 #include "duckdb/common/types/value.hpp"
 #include "duckdb/common/types/timestamp.hpp"
@@ -9,7 +9,7 @@
 #include <variant>
 
 using namespace duckdb;
-using namespace duckdb::adapters;
+using namespace duckdb::conversion;
 
 TEST_CASE("boolean value", "[literal_conversion]") {
 	auto lit = ConvertValueToLiteral(Value::BOOLEAN(true));

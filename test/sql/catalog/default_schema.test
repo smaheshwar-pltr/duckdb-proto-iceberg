@@ -30,6 +30,18 @@ SELECT count(*) FROM lake.main.test_table;
 ----
 5
 
+# Multi-level Iceberg namespaces are not supported and must not be flattened to the last component.
+statement ok
+USE lake;
+
+statement error
+SELECT count(*) FROM foo.default.test_table;
+----
+does not exist
+
+statement ok
+USE memory.main;
+
 statement ok
 DETACH lake;
 
@@ -74,6 +86,31 @@ statement error
 SELECT * FROM lake.test_table;
 ----
 does not exist
+
+statement ok
+DETACH lake;
+
+# --- Configured namespaces retain their case ---
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181', DEFAULT_SCHEMA 'MAIN');
+
+# DuckDB's lowercase "main" schema redirects to the uppercase Iceberg namespace without folding its case.
+statement ok
+CALL enable_logging(level := 'debug');
+
+statement ok
+CALL truncate_duckdb_logs();
+
+statement error
+SELECT * FROM lake.main.case_sensitive_missing;
+----
+does not exist
+
+query I
+SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%LoadTable ''MAIN.case_sensitive_missing''%';
+----
+1
 
 statement ok
 DETACH lake;

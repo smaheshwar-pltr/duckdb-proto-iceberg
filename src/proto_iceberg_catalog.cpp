@@ -76,12 +76,28 @@ void ProtoIcebergCatalog::ScanSchemas(ClientContext &context, std::function<void
 optional_ptr<SchemaCatalogEntry> ProtoIcebergCatalog::LookupSchema(CatalogTransaction transaction,
                                                                    const EntryLookupInfo &schema_lookup,
                                                                    OnEntryNotFound if_not_found) {
-	const auto &schema_name = schema_lookup.GetEntryName();
-	auto default_schema = Identifier(default_schema_);
+	const auto &qualified_path = schema_lookup.GetQualifiedName().Path();
+	vector<Identifier> schema_path;
+	for (idx_t i = 0; i < qualified_path.size(); i++) {
+		if (i == 0 && qualified_path.size() > 1) {
+			continue;
+		}
+		if (!qualified_path[i].empty()) {
+			schema_path.push_back(qualified_path[i]);
+		}
+	}
+	if (schema_path.size() != 1) {
+		if (if_not_found == OnEntryNotFound::RETURN_NULL) {
+			return nullptr;
+		}
+		throw CatalogException(schema_lookup.GetErrorContext(), "Proto Iceberg does not support nested schemas");
+	}
+	const auto &schema_name = schema_path[0].GetIdentifierName();
 
 	// Redirect DuckDB's default schema to the configured default one.
-	if (schema_name == DEFAULT_SCHEMA && default_schema != DEFAULT_SCHEMA) {
-		return LookupSchema(transaction, EntryLookupInfo(CatalogType::SCHEMA_ENTRY, QualifiedName(default_schema)),
+	if (schema_name == DEFAULT_SCHEMA && default_schema_ != DEFAULT_SCHEMA) {
+		return LookupSchema(transaction,
+		                    EntryLookupInfo(CatalogType::SCHEMA_ENTRY, QualifiedName(Identifier(default_schema_))),
 		                    if_not_found);
 	}
 

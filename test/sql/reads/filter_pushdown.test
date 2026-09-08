@@ -127,16 +127,56 @@ CALL truncate_duckdb_logs();
 
 query I
 SELECT count(*) FROM lake.default.multi_partition mp
-JOIN lake.default.test_table t ON mp.id = t.id
-WHERE t.id IN (1, 2);
+JOIN (VALUES (1), (2)) v(id) ON mp.id = v.id;
 ----
 2
 
 query I
-SELECT count(*) FROM (SELECT DISTINCT 1 FROM duckdb_logs()
-  WHERE message LIKE 'proto_iceberg: planned 1 data file(s) for ''default.multi_partition''%');
+SELECT count(*) FROM duckdb_logs()
+WHERE message LIKE 'proto_iceberg: planned 1 data file(s) for ''default.multi_partition''%'
+  AND message LIKE '%>= 1%' AND message LIKE '%<= 2%';
 ----
 1
+
+# Temporal prefix ranges use the same signed-integral bound recovery.
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.date_partitioned d
+JOIN (VALUES (DATE '2024-01-01'), (DATE '2024-01-02')) v(event_date)
+ON d.event_date = v.event_date;
+----
+4
+
+query I
+SELECT count(*) FROM duckdb_logs()
+WHERE message LIKE 'proto_iceberg: planned 2 data file(s) for ''default.date_partitioned''%'
+  AND message LIKE '%>= 19723%' AND message LIKE '%<= 19724%';
+----
+1
+
+# String prefix-range filters use file bounds to prune files that cannot contain a build-side key.
+statement ok
+SET dynamic_or_filter_threshold = 1;
+
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.multi_partition mp
+JOIN (VALUES ('asia'), ('asib')) v(region) ON mp.region = v.region;
+----
+6
+
+query I
+SELECT count(*) FROM (SELECT DISTINCT 1 FROM duckdb_logs()
+  WHERE message LIKE 'proto_iceberg: planned 3 data file(s) for ''default.multi_partition'' with filter: true');
+----
+1
+
+statement ok
+RESET dynamic_or_filter_threshold;
 
 # OR / IN / (OR)+AND can't become simple TableFilters, so DuckDB re-pushes them as residuals and the exact
 # filter string and plan count are internal artifacts. Assert the pruning outcome (rows + file count), not those.

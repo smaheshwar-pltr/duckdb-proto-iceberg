@@ -6,15 +6,22 @@
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "duckdb/logging/logger.hpp"
 #include "duckdb/optimizer/filter_combiner.hpp"
+#include "duckdb/planner/expression/bound_conjunction_expression.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
 #include "duckdb/planner/filter/expression_filter.hpp"
+#include "duckdb/planner/filter/table_filter_functions.hpp"
 
 #include "iceberg/table.h"
 #include "iceberg/table_scan.h"
+#include "iceberg/expression/literal.h"
 #include "iceberg/manifest/manifest_entry.h"
 #include "iceberg/expression/expressions.h"
 #include "iceberg/file_format.h"
+#include "iceberg/partition_spec.h"
+#include "iceberg/transform.h"
 
 #include <ranges>
+#include <unordered_map>
 
 namespace duckdb {
 
@@ -53,6 +60,107 @@ std::optional<TableFilterSet> BuildTableFilterSet(ClientContext &context, const 
 	return filter_set.HasFilters() ? std::optional(std::move(filter_set)) : std::nullopt;
 }
 
+using PartitionSpecs = std::unordered_map<int32_t, std::shared_ptr<iceberg::PartitionSpec>>;
+
+bool StringRangeMayMatch(const PrefixRangeFunctionData &data, const std::string &lower, const std::string &upper) {
+	return data.filter->LookupRange(Value(lower), Value(upper)) != FilterPropagateResult::FILTER_ALWAYS_FALSE;
+}
+
+// String prefix filters do not expose bounds, so test their range oracle against Iceberg file or partition bounds.
+bool StringPrefixRangeMayMatch(const PrefixRangeFunctionData &data, const iceberg::SchemaField &field,
+                               const iceberg::DataFile &data_file, const PartitionSpecs &specs) {
+	if (!data.filter || !data.filter->IsInitialized() || !data.filters_null_values ||
+	    data.key_type.InternalType() != PhysicalType::VARCHAR || field.type()->type_id() != iceberg::TypeId::kString) {
+		return true;
+	}
+	auto lower_it = data_file.lower_bounds.find(field.field_id());
+	auto upper_it = data_file.upper_bounds.find(field.field_id());
+	if (lower_it != data_file.lower_bounds.end() && upper_it != data_file.upper_bounds.end()) {
+		auto primitive_type = std::dynamic_pointer_cast<iceberg::PrimitiveType>(field.type());
+		if (primitive_type) {
+			auto lower = iceberg::Literal::Deserialize(lower_it->second, primitive_type);
+			auto upper = iceberg::Literal::Deserialize(upper_it->second, primitive_type);
+			if (lower.has_value() && upper.has_value()) {
+				auto lower_value = std::get_if<std::string>(&lower.value().value());
+				auto upper_value = std::get_if<std::string>(&upper.value().value());
+				if (lower_value && upper_value) {
+					return StringRangeMayMatch(data, *lower_value, *upper_value);
+				}
+			}
+		}
+	}
+
+	if (!data_file.partition_spec_id) {
+		return true;
+	}
+	auto spec = specs.find(*data_file.partition_spec_id);
+	if (spec == specs.end()) {
+		return true;
+	}
+	auto partition_fields = spec->second->fields();
+	auto partition_values = data_file.partition.values();
+	for (idx_t i = 0; i < partition_fields.size() && i < partition_values.size(); i++) {
+		if (partition_fields[i].source_id() != field.field_id() ||
+		    partition_fields[i].transform()->transform_type() != iceberg::TransformType::kIdentity) {
+			continue;
+		}
+		auto value = std::get_if<std::string>(&partition_values[i].value());
+		return !value || StringRangeMayMatch(data, *value, *value);
+	}
+	return true;
+}
+
+bool StringPrefixRangesMayMatch(const Expression &expression, const iceberg::SchemaField &field,
+                                const iceberg::DataFile &data_file, const PartitionSpecs &specs) {
+	if (expression.GetExpressionClass() == ExpressionClass::BOUND_CONJUNCTION) {
+		if (expression.GetExpressionType() != ExpressionType::CONJUNCTION_AND) {
+			return true;
+		}
+		for (auto &child : expression.Cast<BoundConjunctionExpression>().GetChildren()) {
+			if (!StringPrefixRangesMayMatch(*child, field, data_file, specs)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	if (expression.GetExpressionClass() != ExpressionClass::BOUND_FUNCTION) {
+		return true;
+	}
+	auto &function = expression.Cast<BoundFunctionExpression>();
+	if (!function.BindInfo()) {
+		return true;
+	}
+	if (function.Function().GetName() == PrefixRangeScalarFun::NAME) {
+		return StringPrefixRangeMayMatch(function.BindInfo()->Cast<PrefixRangeFunctionData>(), field, data_file, specs);
+	}
+	if (function.Function().GetName() == OptionalFilterScalarFun::NAME) {
+		auto &data = function.BindInfo()->Cast<OptionalFilterFunctionData>();
+		return !data.child_filter_expr || StringPrefixRangesMayMatch(*data.child_filter_expr, field, data_file, specs);
+	}
+	if (function.Function().GetName() == SelectivityOptionalFilterScalarFun::NAME) {
+		auto &data = function.BindInfo()->Cast<SelectivityOptionalFilterFunctionData>();
+		return !data.child_filter_expr || StringPrefixRangesMayMatch(*data.child_filter_expr, field, data_file, specs);
+	}
+	return true;
+}
+
+bool StringPrefixRangesMayMatch(const TableFilterSet &filters, const iceberg::Schema &schema,
+                                const iceberg::DataFile &data_file, const PartitionSpecs &specs) {
+	auto fields = schema.fields();
+	for (auto &entry : filters) {
+		auto field_index = entry.GetIndex().GetIndex();
+		if (field_index >= fields.size()) {
+			continue;
+		}
+		auto &filter = ExpressionFilter::GetExpressionFilter(entry.Filter(),
+		                                                     "ProtoIcebergMultiFileList::StringPrefixRangesMayMatch");
+		if (!StringPrefixRangesMayMatch(*filter.expr, fields[field_index], data_file, specs)) {
+			return false;
+		}
+	}
+	return true;
+}
+
 } // namespace
 
 ProtoIcebergMultiFileList::ProtoIcebergMultiFileList(shared_ptr<ProtoIcebergScanInfo> scan_info_p,
@@ -83,9 +191,13 @@ iceberg::Result<ProtoIcebergScanPlan> ProtoIcebergMultiFileList::PlanFilesImpl(c
 
 	ICEBERG_ASSIGN_OR_RAISE(auto scan, scan_builder->Build());
 	ICEBERG_ASSIGN_OR_RAISE(auto tasks, scan->PlanFiles());
+	ICEBERG_ASSIGN_OR_RAISE(auto specs, info.table->specs());
 
 	ProtoIcebergScanPlan plan {};
 	for (const auto &task : tasks) {
+		if (!StringPrefixRangesMayMatch(filters, *info.schema, *task->data_file(), specs.get())) {
+			continue;
+		}
 		if (!task->delete_files().empty()) {
 			return iceberg::NotImplemented("Reading delete files is not yet supported");
 		}

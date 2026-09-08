@@ -1,7 +1,6 @@
 #include "constants.hpp"
 #include "proto_iceberg_table_entry.hpp"
 #include "proto_iceberg_catalog.hpp"
-#include "proto_iceberg_transaction.hpp"
 #include "proto_iceberg_scan_info.hpp"
 #include "proto_iceberg_multi_file_reader.hpp"
 
@@ -34,9 +33,8 @@ namespace s3 = constants::s3;
 CreateSecretInput MakeBaseS3SecretInput() {
 	return {.type = Identifier(s3::kSecretType),
 	        .provider = Identifier(s3::kProvider),
-	        .storage_type = Identifier("memory"),
 	        .on_conflict = OnCreateConflict::REPLACE_ON_CONFLICT,
-	        .persist_type = SecretPersistType::TEMPORARY};
+	        .persist_type = SecretPersistType::TRANSACTION};
 }
 
 string GenerateScopedSecretName(const string &catalog_name, const iceberg::TableIdentifier &table_id,
@@ -105,20 +103,13 @@ CreateSecretInput BuildScopedS3Secret(const string &catalog_name, const iceberg:
 	return input;
 }
 
-void CreateScopedS3Secret(ClientContext &context, ProtoIcebergTransaction &txn, const string &catalog_name,
+void CreateScopedS3Secret(ClientContext &context, const string &catalog_name,
                           const std::shared_ptr<iceberg::Table> &table) {
 	auto input = BuildScopedS3Secret(catalog_name, *table, MetaTransaction::Get(context).global_transaction_id);
-	// N.B. We pin the Table object during a transaction; we therefore need not recreate a table's secrets.
-	// TODO: Support credential refresh (in some manner) within a transaction, which would change this.
-	if (txn.HasTrackedSecret(input.name.GetIdentifierName())) {
-		return;
-	}
-
 	if (!SecretManager::Get(context).CreateSecret(context, input)) {
 		throw IOException("Failed to create scoped S3 secret '%s' for table '%s'", input.name,
 		                  table->name().ToString());
 	}
-	txn.TrackSecret(input.name.GetIdentifierName());
 }
 
 TableFunction GetParquetScanFunction(ClientContext &context) {
@@ -185,11 +176,10 @@ TableFunction ProtoIcebergTableEntry::GetScanFunction(ClientContext &context, un
 	D_ASSERT(scan_info_ && scan_info_->table);
 
 	auto &ic_catalog = catalog.Cast<ProtoIcebergCatalog>();
-	auto &txn = ProtoIcebergTransaction::Get(context, ic_catalog.GetAttached());
 
 	// httpfs provides the S3 secret type; load it before creating the scoped S3 secret.
 	ExtensionHelper::AutoLoadExtension(DatabaseInstance::GetDatabase(context), kHttpfsExtension);
-	CreateScopedS3Secret(context, txn, ic_catalog.GetCatalogURI(), scan_info_->table);
+	CreateScopedS3Secret(context, ic_catalog.GetCatalogURI(), scan_info_->table);
 
 	auto iceberg_scan = ConfigureIcebergScan(context, scan_info_);
 	auto [scan, scan_bind_data] = BindIcebergScan(context, std::move(iceberg_scan));

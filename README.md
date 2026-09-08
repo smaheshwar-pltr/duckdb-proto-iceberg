@@ -19,7 +19,7 @@ DuckDB Engine
  │               └─ ProtoIcebergMultiFileReader   (creates file list + field-ID schema binding)
  │                   └─ ProtoIcebergMultiFileList (lazy file planning + filter pushdown)
  └─ ProtoIcebergTransactionManager
-     └─ ProtoIcebergTransaction                   (schema store + timestamp + secrets)
+     └─ ProtoIcebergTransaction                   (schema store + timestamp)
 ```
 
 ## Building

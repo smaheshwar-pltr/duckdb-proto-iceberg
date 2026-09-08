@@ -4,11 +4,8 @@
 #include "duckdb/transaction/transaction.hpp"
 #include "duckdb/transaction/transaction_manager.hpp"
 #include "duckdb/transaction/meta_transaction.hpp"
-#include "duckdb/main/attached_database.hpp"
-#include "duckdb/main/connection.hpp"
+#include "duckdb/common/exception/transaction_exception.hpp"
 #include "duckdb/common/types/timestamp.hpp"
-#include "duckdb/main/secret/secret_manager.hpp"
-#include "duckdb/logging/logger.hpp"
 
 namespace duckdb {
 
@@ -50,28 +47,6 @@ void ProtoIcebergTransaction::LockedSchemas::MarkListed() {
 	guard_->listed = true;
 }
 
-void ProtoIcebergTransaction::TrackSecret(std::string_view secret_name) {
-	created_secrets_.Lock()->insert(string(secret_name));
-}
-
-bool ProtoIcebergTransaction::HasTrackedSecret(std::string_view secret_name) const {
-	auto secrets = created_secrets_.Lock();
-	return secrets->contains(string(secret_name));
-}
-
-void ProtoIcebergTransaction::DropSecrets(ClientContext &context) {
-	auto secrets = created_secrets_.Lock();
-	if (secrets->empty()) {
-		return;
-	}
-	auto &secret_manager = SecretManager::Get(context);
-	for (auto &secret_name : *secrets) {
-		secret_manager.DropSecretByName(context, Identifier(secret_name), OnEntryNotFound::RETURN_NULL,
-		                                SecretPersistType::TEMPORARY);
-	}
-	secrets->clear();
-}
-
 ProtoIcebergTransaction &ProtoIcebergTransaction::Get(ClientContext &context, AttachedDatabase &db) {
 	return Transaction::Get(context, db).Cast<ProtoIcebergTransaction>();
 }
@@ -82,15 +57,6 @@ ProtoIcebergTransactionManager::ProtoIcebergTransactionManager(AttachedDatabase 
 
 ProtoIcebergTransactionManager::~ProtoIcebergTransactionManager() = default;
 
-void ProtoIcebergTransactionManager::DropSecretsInNestedTxn(ProtoIcebergTransaction &txn) const {
-	// Secret drop is a catalog write that can't run inside the txn; use a temporary Connection with its own txn.
-	Connection temp_con(db.GetDatabase());
-	temp_con.BeginTransaction();
-	txn.DropSecrets(*temp_con.context);
-	// N.B. Commit (not Rollback); the secret drop is a transactional catalog op, so rolling back would revert it.
-	temp_con.Commit();
-}
-
 Transaction &ProtoIcebergTransactionManager::StartTransaction(ClientContext &context) {
 	auto transaction = make_uniq<ProtoIcebergTransaction>(*this, context);
 	auto &result = *transaction;
@@ -100,15 +66,6 @@ Transaction &ProtoIcebergTransactionManager::StartTransaction(ClientContext &con
 }
 
 ErrorData ProtoIcebergTransactionManager::CommitTransaction(ClientContext &context, Transaction &transaction) {
-	auto &txn = transaction.Cast<ProtoIcebergTransaction>();
-
-	try {
-		DropSecretsInNestedTxn(txn);
-	} catch (std::exception &ex) {
-		// Bounded leak: secrets are TEMPORARY + per-txn-unique + REPLACE_ON_CONFLICT.
-		DUCKDB_LOG_WARNING(context, "proto_iceberg: failed to drop scoped S3 secret(s) on commit: %s", ex.what());
-	}
-
 	auto guard = transactions_.Lock();
 	if (auto it = guard->find(transaction); it != guard->end()) {
 		guard->erase(it);
@@ -118,14 +75,6 @@ ErrorData ProtoIcebergTransactionManager::CommitTransaction(ClientContext &conte
 }
 
 void ProtoIcebergTransactionManager::RollbackTransaction(Transaction &transaction) {
-	auto &txn = transaction.Cast<ProtoIcebergTransaction>();
-
-	try {
-		DropSecretsInNestedTxn(txn);
-	} catch (std::exception &) {
-		// Bounded leak: secrets are TEMPORARY + per-txn-unique + REPLACE_ON_CONFLICT.
-	}
-
 	auto guard = transactions_.Lock();
 	if (auto it = guard->find(transaction); it != guard->end()) {
 		guard->erase(it);

@@ -260,6 +260,40 @@ def create_partitioned_table(catalog):
     print(f"  Inserted {len(data)} rows into 'default.partitioned_table'")
 
 
+def create_string_partition_without_metrics(catalog):
+    """String identity partitions with file metrics disabled."""
+    schema = Schema(
+        NestedField(field_id=1, name="region", field_type=StringType(), required=False),
+        NestedField(field_id=2, name="id", field_type=IntegerType(), required=False),
+    )
+    partition_spec = PartitionSpec(
+        PartitionField(
+            source_id=1,
+            field_id=1000,
+            transform=IdentityTransform(),
+            name="region_identity",
+        ),
+    )
+    table = drop_and_create(
+        catalog,
+        "default.string_partition_without_metrics",
+        schema,
+        partition_spec=partition_spec,
+        properties={"write.metadata.metrics.default": "none"},
+    )
+    for row_id, region in enumerate(["asia", "eu", "us"], start=1):
+        table.append(
+            pa.table(
+                {
+                    "region": pa.array([region], type=pa.string()),
+                    "id": pa.array([row_id], type=pa.int32()),
+                }
+            )
+        )
+    assert_file_count(catalog, "default.string_partition_without_metrics", 3)
+    print("  Inserted 3 rows into 'default.string_partition_without_metrics'")
+
+
 def create_date_partitioned_table(catalog):
     """Partitioned by day(event_date)."""
     schema = Schema(
@@ -766,6 +800,7 @@ def main():
     create_all_types_table(catalog)
     create_nullable_table(catalog)
     create_partitioned_table(catalog)
+    create_string_partition_without_metrics(catalog)
     create_date_partitioned_table(catalog)
     create_multi_append_table(catalog)
     create_join_tables(catalog)

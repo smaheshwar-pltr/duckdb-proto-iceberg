@@ -175,6 +175,22 @@ SELECT count(*) FROM (SELECT DISTINCT 1 FROM duckdb_logs()
 ----
 1
 
+# Without file metrics, the same filter is evaluated against identity partition values.
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.string_partition_without_metrics t
+JOIN (VALUES ('asia'), ('asib')) v(region) ON t.region = v.region;
+----
+1
+
+query I
+SELECT count(*) FROM (SELECT DISTINCT 1 FROM duckdb_logs()
+  WHERE message LIKE 'proto_iceberg: planned 1 data file(s) for ''default.string_partition_without_metrics'' with filter: true');
+----
+1
+
 statement ok
 RESET dynamic_or_filter_threshold;
 

@@ -121,6 +121,23 @@ SELECT message FROM duckdb_logs() WHERE message LIKE 'proto_iceberg: planned%' A
 ----
 proto_iceberg: planned 1 data file(s) for 'default.multi_partition' with filter: ref(name="id") == 1
 
+# A dense multi-key join uses DuckDB's prefix-range filter. Its recovered bounds prune to the first file.
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count(*) FROM lake.default.multi_partition mp
+JOIN lake.default.test_table t ON mp.id = t.id
+WHERE t.id IN (1, 2);
+----
+2
+
+query I
+SELECT count(*) FROM (SELECT DISTINCT 1 FROM duckdb_logs()
+  WHERE message LIKE 'proto_iceberg: planned 1 data file(s) for ''default.multi_partition''%');
+----
+1
+
 # OR / IN / (OR)+AND can't become simple TableFilters, so DuckDB re-pushes them as residuals and the exact
 # filter string and plan count are internal artifacts. Assert the pruning outcome (rows + file count), not those.
 

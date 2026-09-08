@@ -22,6 +22,7 @@
 #include "iceberg/schema_field.h"
 #include "iceberg/util/int128.h"
 
+#include <numeric>
 #include <ranges>
 
 namespace duckdb::conversion {
@@ -194,6 +195,82 @@ std::shared_ptr<iceberg::Expression> TranslateComparison(const std::string &colu
 	}
 }
 
+bool IsDirectReference(const Expression &expression);
+
+template <typename T>
+Value PhysicalValue(T value, const LogicalType &type) {
+	return Value::CreateValue<T>(value).WithType(type);
+}
+
+template <typename T>
+std::shared_ptr<iceberg::Expression> TranslatePrefixRange(const std::string &column_name,
+                                                          const PrefixRangeFunctionData &data) {
+	auto minimum = Value::MinimumValue(data.key_type).GetValueUnsafe<T>();
+	auto maximum = Value::MaximumValue(data.key_type).GetValueUnsafe<T>();
+	auto might_match = [&](T lower, T upper) {
+		return data.filter->LookupRange(PhysicalValue(lower, data.key_type), PhysicalValue(upper, data.key_type)) !=
+		       FilterPropagateResult::FILTER_ALWAYS_FALSE;
+	};
+	if (!might_match(minimum, maximum)) {
+		return iceberg::Expressions::AlwaysTrue();
+	}
+
+	// LookupRange has no false negatives. False positives can widen these bounds but cannot exclude a matching value.
+	auto lower = minimum;
+	auto upper = maximum;
+	while (lower < upper) {
+		auto midpoint = std::midpoint(lower, upper);
+		if (might_match(minimum, midpoint)) {
+			upper = midpoint;
+		} else {
+			lower = static_cast<T>(midpoint + 1);
+		}
+	}
+	auto recovered_lower = lower;
+
+	lower = recovered_lower;
+	upper = maximum;
+	while (lower < upper) {
+		auto midpoint = std::midpoint(lower, upper);
+		if (midpoint == lower) {
+			midpoint = static_cast<T>(midpoint + 1);
+		}
+		if (might_match(midpoint, maximum)) {
+			lower = midpoint;
+		} else {
+			upper = static_cast<T>(midpoint - 1);
+		}
+	}
+
+	return iceberg::Expressions::And(TranslateComparison(column_name, ExpressionType::COMPARE_GREATERTHANOREQUALTO,
+	                                                     PhysicalValue(recovered_lower, data.key_type)),
+	                                 TranslateComparison(column_name, ExpressionType::COMPARE_LESSTHANOREQUALTO,
+	                                                     PhysicalValue(lower, data.key_type)));
+}
+
+std::shared_ptr<iceberg::Expression> TranslatePrefixRange(const std::string &column_name,
+                                                          const BoundFunctionExpression &function) {
+	if (!function.BindInfo() || function.GetChildren().size() != 1 || !IsDirectReference(*function.GetChildren()[0])) {
+		return iceberg::Expressions::AlwaysTrue();
+	}
+	auto &data = function.BindInfo()->Cast<PrefixRangeFunctionData>();
+	if (!data.filter || !data.filter->IsInitialized() || !data.filters_null_values) {
+		return iceberg::Expressions::AlwaysTrue();
+	}
+	switch (data.key_type.InternalType()) {
+	case PhysicalType::INT8:
+		return TranslatePrefixRange<int8_t>(column_name, data);
+	case PhysicalType::INT16:
+		return TranslatePrefixRange<int16_t>(column_name, data);
+	case PhysicalType::INT32:
+		return TranslatePrefixRange<int32_t>(column_name, data);
+	case PhysicalType::INT64:
+		return TranslatePrefixRange<int64_t>(column_name, data);
+	default:
+		return iceberg::Expressions::AlwaysTrue();
+	}
+}
+
 std::shared_ptr<iceberg::Expression> TranslateConstantFilter(const std::string &column_name,
                                                              const LegacyConstantFilter &filter) {
 	return TranslateComparison(column_name, filter.comparison_type, filter.constant);
@@ -310,6 +387,9 @@ std::shared_ptr<iceberg::Expression> TranslateOrWidenExpression(const Expression
 	}
 	case ExpressionClass::BOUND_FUNCTION: {
 		auto &function = expression.Cast<BoundFunctionExpression>();
+		if (function.Function().GetName() == PrefixRangeScalarFun::NAME) {
+			return TranslatePrefixRange(column_name, function);
+		}
 		if (function.Function().GetName() == OptionalFilterScalarFun::NAME && function.BindInfo()) {
 			auto &data = function.BindInfo()->Cast<OptionalFilterFunctionData>();
 			return data.child_filter_expr ? TranslateOrWidenExpression(*data.child_filter_expr, field)

@@ -46,10 +46,10 @@ public:
 	optional_ptr<SchemaCatalogEntry> LookupSchema(CatalogTransaction transaction, const EntryLookupInfo &schema_lookup,
 	                                              OnEntryNotFound if_not_found) override;
 
-	string GetDefaultSchema() const override {
-		return default_schema_;
+	optional<Identifier> GetDefaultSchema() const override {
+		return Identifier(default_schema_);
 	}
-	bool CheckAmbiguousCatalogOrSchema(ClientContext &context, const string &name) override {
+	bool CheckAmbiguousCatalogOrSchema(ClientContext &context, const Identifier &name) override {
 		return false;
 	}
 

@@ -41,7 +41,7 @@ void ProtoIcebergCatalog::DropSchema(ClientContext &context, DropInfo &info) {
 
 unique_ptr<ProtoIcebergSchemaEntry> ProtoIcebergCatalog::MakeSchemaEntry(const string &name) {
 	auto info = make_uniq<CreateSchemaInfo>();
-	info->schema = name;
+	info->SetSchema(Identifier(name));
 	return make_uniq<ProtoIcebergSchemaEntry>(*this, *info);
 }
 
@@ -76,11 +76,13 @@ void ProtoIcebergCatalog::ScanSchemas(ClientContext &context, std::function<void
 optional_ptr<SchemaCatalogEntry> ProtoIcebergCatalog::LookupSchema(CatalogTransaction transaction,
                                                                    const EntryLookupInfo &schema_lookup,
                                                                    OnEntryNotFound if_not_found) {
-	auto schema_name = schema_lookup.GetEntryName();
+	const auto &schema_name = schema_lookup.GetEntryName();
+	auto default_schema = Identifier(default_schema_);
 
 	// Redirect DuckDB's default schema to the configured default one.
-	if (schema_name == DEFAULT_SCHEMA && GetDefaultSchema() != DEFAULT_SCHEMA) {
-		return LookupSchema(transaction, EntryLookupInfo(CatalogType::SCHEMA_ENTRY, GetDefaultSchema()), if_not_found);
+	if (schema_name == DEFAULT_SCHEMA && default_schema != DEFAULT_SCHEMA) {
+		return LookupSchema(transaction, EntryLookupInfo(CatalogType::SCHEMA_ENTRY, QualifiedName(default_schema)),
+		                    if_not_found);
 	}
 
 	auto &txn = ProtoIcebergTransaction::Get(transaction.GetContext(), GetAttached());

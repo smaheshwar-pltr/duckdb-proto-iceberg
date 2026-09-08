@@ -24,7 +24,7 @@ shared_ptr<MultiFileList> ProtoIcebergMultiFileReader::CreateFileList(ClientCont
 }
 
 bool ProtoIcebergMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
-                                       vector<LogicalType> &return_types, vector<string> &names,
+                                       vector<LogicalType> &return_types, vector<Identifier> &names,
                                        MultiFileReaderBindData &bind_data) {
 	// Configure bind schema with field-ID identifiers for column mapping.
 	const auto &list = files.Cast<ProtoIcebergMultiFileList>();
@@ -38,7 +38,7 @@ bool ProtoIcebergMultiFileReader::Bind(MultiFileOptions &options, MultiFileList 
 }
 
 void ProtoIcebergMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList &files,
-                                              vector<LogicalType> &return_types, vector<string> &names,
+                                              vector<LogicalType> &return_types, vector<Identifier> &names,
                                               MultiFileReaderBindData &bind_data) {
 	// Disable Hive partitioning; Iceberg handles it.
 	options.auto_detect_hive_partitioning = false;

@@ -3,7 +3,7 @@
 #include "proto_iceberg_scan_info.hpp"
 
 #include "duckdb/common/multi_file/multi_file_list.hpp"
-#include "duckdb/planner/table_filter.hpp"
+#include "duckdb/planner/table_filter_set.hpp"
 #include "duckdb/storage/statistics/node_statistics.hpp"
 #include "iceberg/util/lazy.h"
 
@@ -34,10 +34,7 @@ public:
 	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileOptions &options,
 	                                                MultiFilePushdownInfo &info,
 	                                                vector<unique_ptr<Expression>> &filters) const override;
-	unique_ptr<MultiFileList> DynamicFilterPushdown(ClientContext &context, const MultiFileOptions &options,
-	                                                const vector<string> &names, const vector<LogicalType> &types,
-	                                                const vector<column_t> &column_ids,
-	                                                TableFilterSet &filters) const override;
+	unique_ptr<MultiFileList> DynamicFilterPushdown(MultiFileDynamicPushdownInfo &pushdown_info) const override;
 
 	/// Returns the resolved scan schema (the pinned snapshot's schema for a pinned read, else the current schema).
 	const std::shared_ptr<iceberg::Schema> &GetScanSchema() const;

@@ -45,7 +45,7 @@ unordered_map<string, string> ReadS3SecretAsIcebergProperties(ClientContext &con
 
 	unordered_map<string, string> props;
 	for (const auto &[duckdb_key, iceberg_key, kind] : s3::kPropertyMappings) {
-		if (Value value; kv_secret->TryGetValue(string(duckdb_key), value)) {
+		if (Value value; kv_secret->TryGetValue(Identifier(string(duckdb_key)), value)) {
 			switch (kind) {
 			case s3::PropertyKind::kPlain:
 				props[string(iceberg_key)] = value.ToString();
@@ -103,10 +103,10 @@ void MergeIcebergSecretParams(CatalogParams &params, ClientContext &context, con
 
 	auto apply = [&params](const KeyValueSecret &kv) {
 		Value val;
-		if (params.uri.empty() && kv.TryGetValue(kEndpoint, val)) {
+		if (params.uri.empty() && kv.TryGetValue(Identifier(kEndpoint), val)) {
 			params.uri = val.ToString();
 		}
-		if (params.token.empty() && kv.TryGetValue(kToken, val)) {
+		if (params.token.empty() && kv.TryGetValue(Identifier(kToken), val)) {
 			params.token = val.ToString();
 		}
 	};

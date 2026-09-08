@@ -1,11 +1,19 @@
 #include "conversion.hpp"
 
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/planner/table_filter_set.hpp"
 #include "duckdb/planner/filter/constant_filter.hpp"
 #include "duckdb/planner/filter/in_filter.hpp"
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/optional_filter.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"
+#include "duckdb/planner/expression/bound_comparison_expression.hpp"
+#include "duckdb/planner/expression/bound_conjunction_expression.hpp"
+#include "duckdb/planner/expression/bound_constant_expression.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
+#include "duckdb/planner/expression/bound_operator_expression.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
+#include "duckdb/planner/filter/table_filter_functions.hpp"
 #include "duckdb/common/types/date.hpp"
 #include "duckdb/common/types/time.hpp"
 #include "duckdb/common/types/timestamp.hpp"
@@ -103,7 +111,7 @@ LogicalType MapIcebergType(const iceberg::Type &type) {
 	case iceberg::TypeId::kStruct: {
 		auto &struct_type = static_cast<const iceberg::StructType &>(type);
 		auto children = struct_type.fields() | std::views::transform([](const auto &field) {
-			                return make_pair(std::string(field.name()), MapIcebergType(*field.type()));
+			                return make_pair(Identifier(std::string(field.name())), MapIcebergType(*field.type()));
 		                }) |
 		                std::ranges::to<child_list_t<LogicalType>>();
 		return LogicalType::STRUCT(children);
@@ -140,7 +148,7 @@ std::optional<iceberg::Literal> ConvertValueToLiteral(const Value &value) {
 		return iceberg::Literal::Date(DateValue::Get(value).days);
 	case LogicalTypeId::TIME:
 		// DuckDB dtime_t stores microseconds from midnight as int64_t (same as Iceberg)
-		return iceberg::Literal::Time(TimeValue::Get(value).micros);
+		return iceberg::Literal::Time(TimeValue::Get(value).value);
 	case LogicalTypeId::TIMESTAMP:
 		// DuckDB timestamp_t stores microseconds since epoch as int64_t (same as Iceberg)
 		return iceberg::Literal::Timestamp(TimestampValue::Get(value).value);
@@ -162,13 +170,13 @@ std::optional<iceberg::Literal> ConvertValueToLiteral(const Value &value) {
 
 namespace {
 
-std::shared_ptr<iceberg::Expression> TranslateConstantFilter(const std::string &column_name,
-                                                             const ConstantFilter &filter) {
-	auto literal = ConvertValueToLiteral(filter.constant);
+std::shared_ptr<iceberg::Expression> TranslateComparison(const std::string &column_name, ExpressionType comparison_type,
+                                                         const Value &constant) {
+	auto literal = ConvertValueToLiteral(constant);
 	if (!literal.has_value()) {
 		return iceberg::Expressions::AlwaysTrue();
 	}
-	switch (filter.comparison_type) {
+	switch (comparison_type) {
 	case ExpressionType::COMPARE_EQUAL:
 		return iceberg::Expressions::Equal(column_name, std::move(*literal));
 	case ExpressionType::COMPARE_NOTEQUAL:
@@ -186,7 +194,12 @@ std::shared_ptr<iceberg::Expression> TranslateConstantFilter(const std::string &
 	}
 }
 
-std::shared_ptr<iceberg::Expression> TranslateInFilter(const std::string &column_name, const InFilter &filter) {
+std::shared_ptr<iceberg::Expression> TranslateConstantFilter(const std::string &column_name,
+                                                             const LegacyConstantFilter &filter) {
+	return TranslateComparison(column_name, filter.comparison_type, filter.constant);
+}
+
+std::shared_ptr<iceberg::Expression> TranslateInFilter(const std::string &column_name, const LegacyInFilter &filter) {
 	std::vector<iceberg::Literal> literals;
 	literals.reserve(filter.values.size());
 	for (auto &val : filter.values) {
@@ -200,7 +213,7 @@ std::shared_ptr<iceberg::Expression> TranslateInFilter(const std::string &column
 	return iceberg::Expressions::In(column_name, std::move(literals));
 }
 
-std::shared_ptr<iceberg::Expression> TranslateConjunctionAnd(const ConjunctionAndFilter &filter,
+std::shared_ptr<iceberg::Expression> TranslateConjunctionAnd(const LegacyConjunctionAndFilter &filter,
                                                              const iceberg::SchemaField &field) {
 	return std::ranges::fold_left(filter.child_filters | std::views::transform([&](const auto &child) {
 		                              return TranslateOrWidenFilter(*child, field);
@@ -210,7 +223,7 @@ std::shared_ptr<iceberg::Expression> TranslateConjunctionAnd(const ConjunctionAn
 	                              });
 }
 
-std::shared_ptr<iceberg::Expression> TranslateConjunctionOr(const ConjunctionOrFilter &filter,
+std::shared_ptr<iceberg::Expression> TranslateConjunctionOr(const LegacyConjunctionOrFilter &filter,
                                                             const iceberg::SchemaField &field) {
 	return std::ranges::fold_left(filter.child_filters | std::views::transform([&](const auto &child) {
 		                              return TranslateOrWidenFilter(*child, field);
@@ -218,6 +231,100 @@ std::shared_ptr<iceberg::Expression> TranslateConjunctionOr(const ConjunctionOrF
 	                              iceberg::Expressions::AlwaysFalse(), [](auto combined, auto translated) {
 		                              return iceberg::Expressions::Or(std::move(combined), std::move(translated));
 	                              });
+}
+
+bool IsDirectReference(const Expression &expression) {
+	return expression.GetExpressionClass() == ExpressionClass::BOUND_REF ||
+	       expression.GetExpressionClass() == ExpressionClass::BOUND_COLUMN_REF;
+}
+
+std::shared_ptr<iceberg::Expression> TranslateOrWidenExpression(const Expression &expression,
+                                                                const iceberg::SchemaField &field) {
+	auto column_name = std::string(field.name());
+	if (BoundComparisonExpression::IsComparison(expression)) {
+		auto &comparison = expression.Cast<BoundFunctionExpression>();
+		auto &left = BoundComparisonExpression::Left(comparison);
+		auto &right = BoundComparisonExpression::Right(comparison);
+		if (IsDirectReference(left) && right.GetExpressionClass() == ExpressionClass::BOUND_CONSTANT) {
+			return TranslateComparison(column_name, comparison.GetExpressionType(),
+			                           right.Cast<BoundConstantExpression>().GetValue());
+		}
+		if (left.GetExpressionClass() == ExpressionClass::BOUND_CONSTANT && IsDirectReference(right)) {
+			return TranslateComparison(column_name, FlipComparisonExpression(comparison.GetExpressionType()),
+			                           left.Cast<BoundConstantExpression>().GetValue());
+		}
+		return iceberg::Expressions::AlwaysTrue();
+	}
+
+	switch (expression.GetExpressionClass()) {
+	case ExpressionClass::BOUND_CONJUNCTION: {
+		auto &conjunction = expression.Cast<BoundConjunctionExpression>();
+		auto is_and = expression.GetExpressionType() == ExpressionType::CONJUNCTION_AND;
+		if (!is_and && expression.GetExpressionType() != ExpressionType::CONJUNCTION_OR) {
+			return iceberg::Expressions::AlwaysTrue();
+		}
+		std::shared_ptr<iceberg::Expression> combined = iceberg::Expressions::AlwaysTrue();
+		if (!is_and) {
+			combined = iceberg::Expressions::AlwaysFalse();
+		}
+		for (auto &child : conjunction.GetChildren()) {
+			auto translated = TranslateOrWidenExpression(*child, field);
+			combined = is_and ? iceberg::Expressions::And(std::move(combined), std::move(translated))
+			                  : iceberg::Expressions::Or(std::move(combined), std::move(translated));
+		}
+		return combined;
+	}
+	case ExpressionClass::BOUND_OPERATOR: {
+		auto &operator_expression = expression.Cast<BoundOperatorExpression>();
+		auto &children = operator_expression.GetChildren();
+		switch (expression.GetExpressionType()) {
+		case ExpressionType::OPERATOR_IS_NULL:
+		case ExpressionType::OPERATOR_IS_NOT_NULL:
+			if (children.size() != 1 || !IsDirectReference(*children[0])) {
+				return iceberg::Expressions::AlwaysTrue();
+			}
+			return expression.GetExpressionType() == ExpressionType::OPERATOR_IS_NULL
+			           ? iceberg::Expressions::IsNull(column_name)
+			           : iceberg::Expressions::NotNull(column_name);
+		case ExpressionType::COMPARE_IN: {
+			if (children.size() < 2 || !IsDirectReference(*children[0])) {
+				return iceberg::Expressions::AlwaysTrue();
+			}
+			std::vector<iceberg::Literal> literals;
+			literals.reserve(children.size() - 1);
+			for (idx_t index = 1; index < children.size(); index++) {
+				if (children[index]->GetExpressionClass() != ExpressionClass::BOUND_CONSTANT) {
+					return iceberg::Expressions::AlwaysTrue();
+				}
+				auto literal = ConvertValueToLiteral(children[index]->Cast<BoundConstantExpression>().GetValue());
+				if (!literal) {
+					return iceberg::Expressions::AlwaysTrue();
+				}
+				literals.push_back(std::move(*literal));
+			}
+			return iceberg::Expressions::In(column_name, std::move(literals));
+		}
+		default:
+			return iceberg::Expressions::AlwaysTrue();
+		}
+	}
+	case ExpressionClass::BOUND_FUNCTION: {
+		auto &function = expression.Cast<BoundFunctionExpression>();
+		if (function.Function().GetName() == OptionalFilterScalarFun::NAME && function.BindInfo()) {
+			auto &data = function.BindInfo()->Cast<OptionalFilterFunctionData>();
+			return data.child_filter_expr ? TranslateOrWidenExpression(*data.child_filter_expr, field)
+			                              : iceberg::Expressions::AlwaysTrue();
+		}
+		if (function.Function().GetName() == SelectivityOptionalFilterScalarFun::NAME && function.BindInfo()) {
+			auto &data = function.BindInfo()->Cast<SelectivityOptionalFilterFunctionData>();
+			return data.child_filter_expr ? TranslateOrWidenExpression(*data.child_filter_expr, field)
+			                              : iceberg::Expressions::AlwaysTrue();
+		}
+		return iceberg::Expressions::AlwaysTrue();
+	}
+	default:
+		return iceberg::Expressions::AlwaysTrue();
+	}
 }
 
 } // namespace
@@ -232,11 +339,12 @@ std::shared_ptr<iceberg::Expression> TranslateOrWidenFilters(const TableFilterSe
                                                              const iceberg::Schema &schema) {
 	auto fields = schema.fields();
 	std::shared_ptr<iceberg::Expression> combined = iceberg::Expressions::AlwaysTrue();
-	for (auto &[column_idx, filter] : filters.filters) {
+	for (auto &entry : filters) {
+		auto column_idx = entry.GetIndex().GetIndex();
 		if (column_idx >= fields.size()) {
 			continue;
 		}
-		auto translated = TranslateOrWidenFilter(*filter, fields[column_idx]);
+		auto translated = TranslateOrWidenFilter(entry.Filter(), fields[column_idx]);
 		combined = iceberg::Expressions::And(std::move(combined), std::move(translated));
 	}
 	return combined;
@@ -246,20 +354,22 @@ std::shared_ptr<iceberg::Expression> TranslateOrWidenFilter(const TableFilter &f
                                                             const iceberg::SchemaField &field) {
 	auto column_name = std::string(field.name());
 	switch (filter.filter_type) {
-	case TableFilterType::CONSTANT_COMPARISON:
-		return TranslateConstantFilter(column_name, filter.Cast<ConstantFilter>());
-	case TableFilterType::IS_NULL:
+	case TableFilterType::EXPRESSION_FILTER:
+		return TranslateOrWidenExpression(*filter.Cast<ExpressionFilter>().expr, field);
+	case TableFilterType::LEGACY_CONSTANT_COMPARISON:
+		return TranslateConstantFilter(column_name, filter.Cast<LegacyConstantFilter>());
+	case TableFilterType::LEGACY_IS_NULL:
 		return iceberg::Expressions::IsNull(column_name);
-	case TableFilterType::IS_NOT_NULL:
+	case TableFilterType::LEGACY_IS_NOT_NULL:
 		return iceberg::Expressions::NotNull(column_name);
-	case TableFilterType::IN_FILTER:
-		return TranslateInFilter(column_name, filter.Cast<InFilter>());
-	case TableFilterType::CONJUNCTION_AND:
-		return TranslateConjunctionAnd(filter.Cast<ConjunctionAndFilter>(), field);
-	case TableFilterType::CONJUNCTION_OR:
-		return TranslateConjunctionOr(filter.Cast<ConjunctionOrFilter>(), field);
-	case TableFilterType::OPTIONAL_FILTER: {
-		if (auto &optional = filter.Cast<OptionalFilter>(); optional.child_filter) {
+	case TableFilterType::LEGACY_IN_FILTER:
+		return TranslateInFilter(column_name, filter.Cast<LegacyInFilter>());
+	case TableFilterType::LEGACY_CONJUNCTION_AND:
+		return TranslateConjunctionAnd(filter.Cast<LegacyConjunctionAndFilter>(), field);
+	case TableFilterType::LEGACY_CONJUNCTION_OR:
+		return TranslateConjunctionOr(filter.Cast<LegacyConjunctionOrFilter>(), field);
+	case TableFilterType::LEGACY_OPTIONAL_FILTER: {
+		if (auto &optional = filter.Cast<LegacyOptionalFilter>(); optional.child_filter) {
 			return TranslateOrWidenFilter(*optional.child_filter, field);
 		}
 		return iceberg::Expressions::AlwaysTrue();

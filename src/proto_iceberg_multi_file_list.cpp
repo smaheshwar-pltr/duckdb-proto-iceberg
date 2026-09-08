@@ -3,8 +3,10 @@
 #include "unwrap.hpp"
 
 #include "duckdb/common/exception.hpp"
+#include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "duckdb/logging/logger.hpp"
 #include "duckdb/optimizer/filter_combiner.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
 
 #include "iceberg/table.h"
 #include "iceberg/table_scan.h"
@@ -48,7 +50,7 @@ std::optional<TableFilterSet> BuildTableFilterSet(ClientContext &context, const 
 
 	vector<FilterPushdownResult> unused;
 	auto filter_set = combiner.GenerateTableScanFilters(info.column_indexes, unused);
-	return filter_set.filters.empty() ? std::nullopt : std::optional(std::move(filter_set));
+	return filter_set.HasFilters() ? std::optional(std::move(filter_set)) : std::nullopt;
 }
 
 } // namespace
@@ -72,7 +74,7 @@ iceberg::Result<ProtoIcebergScanPlan> ProtoIcebergMultiFileList::PlanFilesImpl(c
 		scan_builder->UseSnapshot(pinned->snapshot_id);
 	}
 	std::shared_ptr<iceberg::Expression> filter {};
-	if (!filters.filters.empty()) {
+	if (filters.HasFilters()) {
 		filter = conversion::TranslateOrWidenFilters(filters, *info.schema);
 	}
 	if (filter) {
@@ -144,15 +146,16 @@ unique_ptr<NodeStatistics> ProtoIcebergMultiFileList::GetCardinality(ClientConte
 
 unique_ptr<ProtoIcebergMultiFileList>
 ProtoIcebergMultiFileList::CreateFilteredList(const TableFilterSet &new_filters) const {
-	TableFilterSet combined {};
+	auto combined = table_filters_.Copy();
 	auto append = [&combined](const TableFilterSet &src) {
-		for (auto &[col_id, f] : src.filters) {
-			combined.PushFilter(ColumnIndex(col_id), f->Copy());
+		for (auto &entry : src) {
+			auto &filter =
+			    ExpressionFilter::GetExpressionFilter(entry.Filter(), "ProtoIcebergMultiFileList::CreateFilteredList");
+			combined->PushFilter(entry.GetIndex(), filter.Copy());
 		}
 	};
-	append(table_filters_);
 	append(new_filters);
-	return make_uniq<ProtoIcebergMultiFileList>(scan_info_, context_, std::move(combined));
+	return make_uniq<ProtoIcebergMultiFileList>(scan_info_, context_, std::move(*combined));
 }
 
 unique_ptr<MultiFileList>
@@ -164,42 +167,71 @@ ProtoIcebergMultiFileList::ComplexFilterPushdown(ClientContext &, const MultiFil
 		return nullptr;
 	}
 
+	TableFilterSet remapped_filters;
+	for (auto &entry : *filter_set) {
+		auto filter_index = entry.GetIndex().GetIndex();
+		if (filter_index >= info.column_indexes.size()) {
+			continue;
+		}
+		auto &column_index = info.column_indexes[filter_index];
+		if (column_index.HasChildren()) {
+			continue;
+		}
+		auto column_id = column_index.GetPrimaryIndex();
+		if (IsVirtualColumn(column_id)) {
+			continue;
+		}
+		auto &filter =
+		    ExpressionFilter::GetExpressionFilter(entry.Filter(), "ProtoIcebergMultiFileList::ComplexFilterPushdown");
+		remapped_filters.PushFilter(ProjectionIndex(column_id), filter.Copy());
+	}
+	if (!remapped_filters.HasFilters()) {
+		return nullptr;
+	}
 	DUCKDB_LOG_DEBUG(context_, "proto_iceberg: ComplexFilterPushdown applied %zu filter(s)",
-	                 filter_set->filters.size());
-	return CreateFilteredList(*filter_set);
+	                 remapped_filters.FilterCount());
+	return CreateFilteredList(remapped_filters);
 }
 
 unique_ptr<MultiFileList>
-ProtoIcebergMultiFileList::DynamicFilterPushdown(ClientContext &, const MultiFileOptions &options,
-                                                 const vector<string> &names, const vector<LogicalType> &types,
-                                                 const vector<column_t> &column_ids, TableFilterSet &filters) const {
-	if (filters.filters.empty()) {
+ProtoIcebergMultiFileList::DynamicFilterPushdown(MultiFileDynamicPushdownInfo &pushdown_info) const {
+	auto &filters = pushdown_info.filters;
+	auto &column_indexes = pushdown_info.column_indexes;
+	if (!filters.HasFilters()) {
 		return nullptr;
 	}
 
 	// Skip filters already pushed down.
 	TableFilterSet new_filters {};
-	for (auto &[filter_idx, table_filter] : filters.filters) {
-		if (filter_idx >= column_ids.size()) {
+	for (auto &entry : filters) {
+		auto filter_idx = entry.GetIndex().GetIndex();
+		if (filter_idx >= column_indexes.size()) {
 			continue;
 		}
-		auto column_id = column_ids[filter_idx];
+		auto &column_index = column_indexes[filter_idx];
+		if (column_index.HasChildren()) {
+			continue;
+		}
+		auto column_id = column_index.GetPrimaryIndex();
 		if (IsVirtualColumn(column_id)) {
 			continue;
 		}
-		if (auto it = table_filters_.filters.find(column_id);
-		    it != table_filters_.filters.end() && table_filter->Equals(*it->second)) {
+		auto &table_filter =
+		    ExpressionFilter::GetExpressionFilter(entry.Filter(), "ProtoIcebergMultiFileList::DynamicFilterPushdown");
+		auto existing = table_filters_.TryGetFilterByColumnIndex(ProjectionIndex(column_id));
+		if (existing && table_filter.Equals(ExpressionFilter::GetExpressionFilter(
+		                    *existing, "ProtoIcebergMultiFileList::DynamicFilterPushdown"))) {
 			continue;
 		}
-		new_filters.PushFilter(ColumnIndex(column_id), table_filter->Copy());
+		new_filters.PushFilter(ProjectionIndex(column_id), table_filter.Copy());
 	}
 
-	if (new_filters.filters.empty()) {
+	if (!new_filters.HasFilters()) {
 		DUCKDB_LOG_DEBUG(context_, "proto_iceberg: DynamicFilterPushdown skipped (all filters already pushed)");
 		return nullptr;
 	}
 	DUCKDB_LOG_DEBUG(context_, "proto_iceberg: DynamicFilterPushdown applied %zu new filter(s)",
-	                 new_filters.filters.size());
+	                 new_filters.FilterCount());
 	return CreateFilteredList(new_filters);
 }
 

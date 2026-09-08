@@ -10,6 +10,7 @@
 #include "duckdb/main/database.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
+#include "duckdb/storage/table_storage_info.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/main/secret/secret.hpp"
@@ -23,17 +24,17 @@
 namespace duckdb {
 namespace {
 
-const string kParquetScan = "parquet_scan";
-const string kTableScanName = "proto_iceberg_table_scan";
+const Identifier kParquetScan("parquet_scan");
+const Identifier kTableScanName("proto_iceberg_table_scan");
 const string kParquetExtension = "parquet";
 const string kHttpfsExtension = "httpfs";
 
 namespace s3 = constants::s3;
 
 CreateSecretInput MakeBaseS3SecretInput() {
-	return {.type = s3::kSecretType,
-	        .provider = s3::kProvider,
-	        .storage_type = "memory",
+	return {.type = Identifier(s3::kSecretType),
+	        .provider = Identifier(s3::kProvider),
+	        .storage_type = Identifier("memory"),
 	        .on_conflict = OnCreateConflict::REPLACE_ON_CONFLICT,
 	        .persist_type = SecretPersistType::TEMPORARY};
 }
@@ -64,7 +65,7 @@ CreateSecretInput BuildScopedS3Secret(const string &catalog_name, const iceberg:
 	}
 
 	auto input = MakeBaseS3SecretInput();
-	input.name = GenerateScopedSecretName(catalog_name, table.name(), txn_id);
+	input.name = Identifier(GenerateScopedSecretName(catalog_name, table.name(), txn_id));
 	input.scope.push_back(std::move(scope_prefix));
 	// Scope to write.data.path too, that may live outside the table's location
 	if (string write_data_path {table.properties().Get(iceberg::TableProperties::kWriteDataLocation)};
@@ -109,7 +110,7 @@ void CreateScopedS3Secret(ClientContext &context, ProtoIcebergTransaction &txn, 
 	auto input = BuildScopedS3Secret(catalog_name, *table, MetaTransaction::Get(context).global_transaction_id);
 	// N.B. We pin the Table object during a transaction; we therefore need not recreate a table's secrets.
 	// TODO: Support credential refresh (in some manner) within a transaction, which would change this.
-	if (txn.HasTrackedSecret(input.name)) {
+	if (txn.HasTrackedSecret(input.name.GetIdentifierName())) {
 		return;
 	}
 
@@ -117,7 +118,7 @@ void CreateScopedS3Secret(ClientContext &context, ProtoIcebergTransaction &txn, 
 		throw IOException("Failed to create scoped S3 secret '%s' for table '%s'", input.name,
 		                  table->name().ToString());
 	}
-	txn.TrackSecret(input.name);
+	txn.TrackSecret(input.name.GetIdentifierName());
 }
 
 TableFunction GetParquetScanFunction(ClientContext &context) {
@@ -133,7 +134,7 @@ TableFunction GetParquetScanFunction(ClientContext &context) {
 	}
 
 	auto &func_set = catalog_entry->Cast<TableFunctionCatalogEntry>();
-	return func_set.functions.GetFunctionByArguments(context, {LogicalType::LIST(LogicalType::VARCHAR)});
+	return *func_set.functions.GetFunctionByArguments(context, {LogicalType::LIST(LogicalType::VARCHAR)});
 }
 
 TableFunction ConfigureIcebergScan(ClientContext &context, const shared_ptr<ProtoIcebergScanInfo> &scan_info) {
@@ -155,13 +156,13 @@ pair<TableFunction, unique_ptr<FunctionData>> BindIcebergScan(ClientContext &con
 	auto inputs = MakePlaceholderScanInputs();
 	named_parameter_map_t named_params;
 	vector<LogicalType> input_table_types;
-	vector<string> input_table_names;
+	vector<Identifier> input_table_names;
 	TableFunctionRef empty_ref;
 	TableFunctionBindInput bind_input(inputs, named_params, input_table_types, input_table_names,
 	                                  iceberg_scan.function_info.get(), nullptr, iceberg_scan, empty_ref);
 
 	vector<LogicalType> return_types;
-	vector<string> return_names;
+	vector<Identifier> return_names;
 	auto bind_data = iceberg_scan.bind(context, bind_input, return_types, return_names);
 
 	return {std::move(iceberg_scan), std::move(bind_data)};

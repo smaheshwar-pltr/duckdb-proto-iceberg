@@ -41,7 +41,7 @@ public:
 unique_ptr<BaseSecret> CreateIcebergSecret(ClientContext &, CreateSecretInput &input) {
 	auto result = make_uniq<KeyValueSecret>(input.scope, input.type, input.provider, input.name);
 	for (auto &[key, value] : input.options) {
-		result->secret_map[key] = value;
+		result->secret_map[Identifier(key)] = value;
 	}
 	result->redact_keys.insert(kRedactedSecrets.begin(), kRedactedSecrets.end());
 	return result;
@@ -54,7 +54,7 @@ void RegisterIcebergFileIO() {
 
 void RegisterIcebergSecretType(ExtensionLoader &loader) {
 	SecretType iceberg_secret_type;
-	iceberg_secret_type.name = kIcebergSecretType;
+	iceberg_secret_type.name = Identifier(kIcebergSecretType);
 	iceberg_secret_type.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
 	iceberg_secret_type.default_provider = kConfigProvider;
 	loader.RegisterSecretType(iceberg_secret_type);
@@ -62,11 +62,11 @@ void RegisterIcebergSecretType(ExtensionLoader &loader) {
 
 void RegisterIcebergSecretFunction(ExtensionLoader &loader) {
 	CreateSecretFunction secret_function {.secret_type = kIcebergSecretType,
-	                                      .provider = kConfigProvider,
+	                                      .provider = Identifier(kConfigProvider),
 	                                      .function = CreateIcebergSecret,
 	                                      .named_parameters = {}};
-	secret_function.named_parameters[kEndpoint] = LogicalType::VARCHAR;
-	secret_function.named_parameters[kToken] = LogicalType::VARCHAR;
+	secret_function.named_parameters[Identifier(kEndpoint)] = LogicalType::VARCHAR;
+	secret_function.named_parameters[Identifier(kToken)] = LogicalType::VARCHAR;
 	loader.RegisterFunction(secret_function);
 }
 

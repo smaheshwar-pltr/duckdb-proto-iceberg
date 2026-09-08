@@ -13,7 +13,7 @@ using namespace duckdb::conversion;
 namespace {
 
 ColumnDefinition CatalogColumnFor(const iceberg::SchemaField &field) {
-	ColumnDefinition col(string(field.name()), MapIcebergType(*field.type()));
+	ColumnDefinition col(Identifier(string(field.name())), MapIcebergType(*field.type()));
 	if (!field.doc().empty()) {
 		col.SetComment(Value(string(field.doc())));
 	}

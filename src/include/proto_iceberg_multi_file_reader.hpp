@@ -14,11 +14,11 @@ public:
 	shared_ptr<MultiFileList> CreateFileList(ClientContext &context, const vector<string> &paths,
 	                                         const FileGlobInput &glob_input) override;
 
-	bool Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types, vector<string> &names,
-	          MultiFileReaderBindData &bind_data) override;
+	bool Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
+	          vector<Identifier> &names, MultiFileReaderBindData &bind_data) override;
 
 	void BindOptions(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
-	                 vector<string> &names, MultiFileReaderBindData &bind_data) override;
+	                 vector<Identifier> &names, MultiFileReaderBindData &bind_data) override;
 
 private:
 	shared_ptr<TableFunctionInfo> function_info_;

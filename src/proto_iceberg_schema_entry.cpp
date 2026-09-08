@@ -29,9 +29,9 @@ unique_ptr<ProtoIcebergTableEntry> CreateTableEntry(ProtoIcebergCatalog &ic_cata
                                                     shared_ptr<ProtoIcebergScanInfo> scan_info,
                                                     const string &entry_name) {
 	auto create_info = make_uniq<CreateTableInfo>();
-	create_info->table = entry_name;
+	create_info->SetTableName(Identifier(entry_name));
 	for (auto &field : scan_info->schema->fields()) {
-		ColumnDefinition col(string(field.name()), conversion::MapIcebergType(*field.type()));
+		ColumnDefinition col(Identifier(string(field.name())), conversion::MapIcebergType(*field.type()));
 		if (!field.doc().empty()) {
 			col.SetComment(Value(string(field.doc())));
 		}
@@ -78,8 +78,10 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIceb
                                                                        const string &table_name, ClientContext &context,
                                                                        Mutex<TableState>::Guard &tables) {
 	auto &ic_catalog = GetIcebergCatalog();
-	DUCKDB_LOG_DEBUG(context, "proto_iceberg: LoadTable '%s.%s'", name, table_name);
-	auto table_result = ic_catalog.GetRestCatalog().LoadTable(conversion::GetTableIdentifier(name, table_name));
+	auto &namespace_name = name.GetIdentifierName();
+	DUCKDB_LOG_DEBUG(context, "proto_iceberg: LoadTable '%s.%s'", namespace_name, table_name);
+	auto table_result =
+	    ic_catalog.GetRestCatalog().LoadTable(conversion::GetTableIdentifier(namespace_name, table_name));
 
 	// Return no entry on LoadTable NotFound exceptions; surface any other error as an exception.
 	if (!table_result.has_value()) {
@@ -93,13 +95,13 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIceb
 			tables->store.PutMiss(table_name);
 			return nullptr;
 		}
-		throw IOException("Failed to load table '%s.%s': %s", name, table_name, message);
+		throw IOException("Failed to load table '%s.%s': %s", namespace_name, table_name, message);
 	}
 
 	// LoadTable above initialized Arrow S3, so we now register S3 cleanup.
 	ProtoIcebergCatalog::RegisterS3Finalizer();
 
-	auto scan_info = ResolveScanInfo(context, txn, std::move(table_result.value()), name, table_name);
+	auto scan_info = ResolveScanInfo(context, txn, std::move(table_result.value()), namespace_name, table_name);
 	auto table_entry = CreateTableEntry(ic_catalog, *this, std::move(scan_info), table_name);
 	return tables->store.Put(table_name, std::move(table_entry)).get();
 }
@@ -182,20 +184,21 @@ void ProtoIcebergSchemaEntry::Scan(ClientContext &context, CatalogType type,
 	// List tables at most once per namespace per transaction. Creates lightweight entries to avoid calling LoadTable
 	// for every table during SHOW ALL TABLES; LoadTable is deferred to LookupEntry.
 	if (!tables->listed) {
-		DUCKDB_LOG_DEBUG(context, "proto_iceberg: ListTables in namespace '%s'", name);
-		auto result = ic_catalog.GetRestCatalog().ListTables(conversion::GetNamespace(name));
+		auto &namespace_name = name.GetIdentifierName();
+		DUCKDB_LOG_DEBUG(context, "proto_iceberg: ListTables in namespace '%s'", namespace_name);
+		auto result = ic_catalog.GetRestCatalog().ListTables(conversion::GetNamespace(namespace_name));
 		if (!result.has_value() && result.error().kind == iceberg::ErrorKind::kNoSuchNamespace) {
 			// An optimistically-created schema that doesn't exist; nothing to list.
 			MarkNamespaceNotFound();
 			return;
 		}
-		const auto &children = UnwrapOrThrow(result, "Failed to list tables in namespace '%s'", name);
+		const auto &children = UnwrapOrThrow(result, "Failed to list tables in namespace '%s'", namespace_name);
 
 		tables->listed = true;
 		for (const auto &[_, tbl_name] : children) {
 			if (auto status = tables->store.Lookup(tbl_name); std::holds_alternative<TableStore::Unknown>(status)) {
 				auto create_info = make_uniq<CreateTableInfo>();
-				create_info->table = tbl_name;
+				create_info->SetTableName(Identifier(tbl_name));
 				// N.B. "__"/UNKNOWN placeholder for not-yet-resolved tables to avoid a LoadTable per listed table, see
 				// https://github.com/duckdb/duckdb-iceberg/issues/515.
 				create_info->columns.AddColumn(ColumnDefinition("__", LogicalType::UNKNOWN));

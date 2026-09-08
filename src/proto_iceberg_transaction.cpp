@@ -66,7 +66,7 @@ void ProtoIcebergTransaction::DropSecrets(ClientContext &context) {
 	}
 	auto &secret_manager = SecretManager::Get(context);
 	for (auto &secret_name : *secrets) {
-		secret_manager.DropSecretByName(context, secret_name, OnEntryNotFound::RETURN_NULL,
+		secret_manager.DropSecretByName(context, Identifier(secret_name), OnEntryNotFound::RETURN_NULL,
 		                                SecretPersistType::TEMPORARY);
 	}
 	secrets->clear();

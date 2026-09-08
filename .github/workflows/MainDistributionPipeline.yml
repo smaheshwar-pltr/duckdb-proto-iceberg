@@ -19,7 +19,7 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@64aec33f4f659eed8e542507b3afa3b262b37e42
     with:
-      duckdb_version: 169987abf3fcf2d4726af3784968e96c0cc84182
+      duckdb_version: 8db5191eaf813c7af6100cc2bfce0c91434ba300
       ci_tools_version: 64aec33f4f659eed8e542507b3afa3b262b37e42
       extension_name: proto_iceberg
 
@@ -27,7 +27,7 @@ jobs:
     name: Code Quality Check
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@64aec33f4f659eed8e542507b3afa3b262b37e42
     with:
-      duckdb_version: 169987abf3fcf2d4726af3784968e96c0cc84182
+      duckdb_version: 8db5191eaf813c7af6100cc2bfce0c91434ba300
       ci_tools_version: 64aec33f4f659eed8e542507b3afa3b262b37e42
       extension_name: proto_iceberg
       # FIXME: Disable tidy to prevent full compilation

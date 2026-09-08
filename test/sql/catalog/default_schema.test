@@ -39,6 +39,16 @@ SELECT count(*) FROM foo.default.test_table;
 ----
 does not exist
 
+statement error
+SHOW TABLES FROM foo.default;
+----
+No catalog + schema
+
+statement error
+USE foo.default;
+----
+No catalog + schema
+
 statement ok
 USE memory.main;
 

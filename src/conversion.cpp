@@ -14,6 +14,7 @@
 #include "iceberg/schema_field.h"
 #include "iceberg/util/int128.h"
 
+#include <cmath>
 #include <ranges>
 
 namespace duckdb::conversion {
@@ -162,9 +163,21 @@ std::optional<iceberg::Literal> ConvertValueToLiteral(const Value &value) {
 
 namespace {
 
+/// Converts a filter constant to a literal for pruning, or nullopt if it can't safely be pushed down. Floating-point
+/// NaN and zero can't: iceberg-cpp rejects NaN literals, and orders -0.0 before +0.0 where DuckDB treats them as equal.
+std::optional<iceberg::Literal> ConvertFilterConstant(const Value &value) {
+	if (!value.IsNull() && (value.type().id() == LogicalTypeId::FLOAT || value.type().id() == LogicalTypeId::DOUBLE)) {
+		auto number = value.GetValue<double>();
+		if (std::isnan(number) || number == 0) {
+			return std::nullopt;
+		}
+	}
+	return ConvertValueToLiteral(value);
+}
+
 std::shared_ptr<iceberg::Expression> TranslateConstantFilter(const std::string &column_name,
                                                              const ConstantFilter &filter) {
-	auto literal = ConvertValueToLiteral(filter.constant);
+	auto literal = ConvertFilterConstant(filter.constant);
 	if (!literal.has_value()) {
 		return iceberg::Expressions::AlwaysTrue();
 	}
@@ -190,7 +203,7 @@ std::shared_ptr<iceberg::Expression> TranslateInFilter(const std::string &column
 	std::vector<iceberg::Literal> literals;
 	literals.reserve(filter.values.size());
 	for (auto &val : filter.values) {
-		if (auto lit = ConvertValueToLiteral(val)) {
+		if (auto lit = ConvertFilterConstant(val)) {
 			literals.push_back(std::move(*lit));
 		} else {
 			return iceberg::Expressions::AlwaysTrue();

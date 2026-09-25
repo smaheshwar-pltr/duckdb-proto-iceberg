@@ -759,6 +759,40 @@ def create_time_table(catalog):
     print(f"  Inserted {len(data)} rows into 'default.time_table'")
 
 
+def create_signed_zero_table(catalog):
+    """FLOAT and DOUBLE identity partitions holding -0.0, +0.0 and 1.0, one file each."""
+    schema = Schema(
+        NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
+        NestedField(field_id=2, name="f", field_type=FloatType(), required=False),
+        NestedField(field_id=3, name="d", field_type=DoubleType(), required=False),
+    )
+
+    partition_spec = PartitionSpec(
+        PartitionField(source_id=2, field_id=1000, transform=IdentityTransform(), name="f_identity"),
+        PartitionField(source_id=3, field_id=1001, transform=IdentityTransform(), name="d_identity"),
+    )
+
+    table = drop_and_create(catalog, "default.signed_zero", schema, partition_spec=partition_spec)
+
+    # Separate appends so -0.0 and +0.0 land in distinct partitions.
+    batches = [
+        ([1, 2], [-0.0, -0.0]),
+        ([3], [0.0]),
+        ([4], [1.0]),
+    ]
+    for ids, values in batches:
+        table.append(
+            pa.table(
+                {
+                    "id": pa.array(ids, type=pa.int32()),
+                    "f": pa.array(values, type=pa.float32()),
+                    "d": pa.array(values, type=pa.float64()),
+                }
+            )
+        )
+    print("  Inserted 4 rows into 'default.signed_zero' (3 partitions)")
+
+
 def main():
     catalog = create_catalog()
 
@@ -782,6 +816,9 @@ def main():
     create_add_column_table(catalog)
     create_drop_column_table(catalog)
     create_time_table(catalog)
+
+    create_signed_zero_table(catalog)
+    assert_file_count(catalog, "default.signed_zero", 3)
 
     print("\nAll test data generated.")
 

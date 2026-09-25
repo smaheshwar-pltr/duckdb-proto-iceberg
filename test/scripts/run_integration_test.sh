@@ -1,69 +1,46 @@
 #!/usr/bin/env bash
+# Runs the SQLLogicTests in test/sql against a REST catalog and object store in Docker.
+# Tests gate on `require-env ICEBERG_SERVER_AVAILABLE`, so they skip when run without this script.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-DOCKER_DIR="${SCRIPT_DIR}/../docker"
-
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_TYPE="${BUILD_TYPE:-debug}"
 UNITTEST="${UNITTEST:-${REPO_DIR}/build/${BUILD_TYPE}/test/unittest}"
+COMPOSE=(docker compose -f "${REPO_DIR}/test/docker/docker-compose.yml")
 
 export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_container_overflow=0}"
 
-if [ ! -f "${UNITTEST}" ]; then
-    echo "ERROR: DuckDB unittest runner not found at ${UNITTEST}"
-    echo "Run 'GEN=ninja make ${BUILD_TYPE}' first."
+if [[ ! -x "${UNITTEST}" ]]; then
+    echo "error: DuckDB test runner not found at ${UNITTEST}; run 'make ${BUILD_TYPE}' first" >&2
     exit 1
 fi
 
-echo "=== Starting Docker services ==="
-docker compose -f "${DOCKER_DIR}/docker-compose.yml" up -d
-
 cleanup() {
-    echo ""
-    echo "=== Stopping Docker services ==="
-    docker compose -f "${DOCKER_DIR}/docker-compose.yml" down -v
+    local status=$?
+    if [[ ${status} -ne 0 ]]; then
+        "${COMPOSE[@]}" logs
+    fi
+    "${COMPOSE[@]}" down -v
 }
 trap cleanup EXIT
 
-echo "=== Waiting for services to be healthy ==="
+wait_for() {
+    local name=$1 url=$2 attempts=$3
+    for ((i = 1; i <= attempts; i++)); do
+        if curl -sf "${url}" >/dev/null; then
+            return
+        fi
+        sleep 2
+    done
+    echo "error: ${name} did not become ready" >&2
+    return 1
+}
 
-for i in $(seq 1 30); do
-    if curl -sf http://localhost:8181/v1/config > /dev/null 2>&1; then
-        echo "REST catalog is ready."
-        break
-    fi
-    if [ "$i" -eq 30 ]; then
-        echo "ERROR: REST catalog did not become ready in time."
-        exit 1
-    fi
-    echo "  Waiting for REST catalog... ($i/30)"
-    sleep 2
-done
+"${COMPOSE[@]}" up -d
+wait_for "REST catalog" http://localhost:8181/v1/config 30
+wait_for "RustFS" http://localhost:9000/health/ready 15
 
-for i in $(seq 1 15); do
-    if curl -sf http://localhost:9000/health/ready > /dev/null 2>&1; then
-        echo "RustFS is ready."
-        break
-    fi
-    if [ "$i" -eq 15 ]; then
-        echo "ERROR: RustFS did not become ready in time."
-        exit 1
-    fi
-    echo "  Waiting for RustFS... ($i/15)"
-    sleep 2
-done
+python3 "${REPO_DIR}/test/scripts/generate_test_data.py"
 
-echo ""
-echo "=== Generating test data ==="
-python3 "${SCRIPT_DIR}/generate_test_data.py"
-
-export ICEBERG_SERVER_AVAILABLE=1
-
-echo ""
-echo "=== Running integration tests ==="
-echo ""
-
-# Run all .test files under test/sql/ via DuckDB's unittest runner.
-# Tests gate on `require-env ICEBERG_SERVER_AVAILABLE` to skip when Docker is down.
-"${UNITTEST}" "test/sql/*"
+cd "${REPO_DIR}"
+ICEBERG_SERVER_AVAILABLE=1 "${UNITTEST}" "test/sql/*"

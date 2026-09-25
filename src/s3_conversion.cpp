@@ -130,9 +130,8 @@ ConvertIcebergPropertiesToS3Secret(const std::unordered_map<std::string, std::st
 	if (auto duckdb_endpoint = ToDuckDBEndpoint(endpoint); !duckdb_endpoint.empty()) {
 		options[kEndpoint] = Value(string(duckdb_endpoint));
 	}
-	// N.B. The endpoint's scheme takes precedence over s3.ssl.enabled, as in iceberg-cpp: the AWS SDK uses an http(s)
-	// endpoint verbatim and only prefixes scheme-less ones with the scheme s3.ssl.enabled selects; see
-	// https://github.com/aws/aws-sdk-cpp/blob/edd1470c52be92aba22314e45b50efcb09a15dfe/src/aws-cpp-sdk-core/source/endpoint/BuiltInParameters.cpp#L17-L29
+	// The endpoint's scheme takes precedence over s3.ssl.enabled, as in iceberg-cpp: the AWS SDK uses an http(s)
+	// endpoint verbatim and only prefixes scheme-less ones with the scheme s3.ssl.enabled selects.
 	if (auto use_ssl = SchemeUsesSsl(endpoint).or_else([&] { return ParseBool(get(S3Properties::kSslEnabled)); })) {
 		options[kUseSsl] = Value::BOOLEAN(*use_ssl);
 	}

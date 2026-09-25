@@ -1,0 +1,77 @@
+# name: test/sql/reads/signed_zero.test
+# description: Filters on FLOAT/DOUBLE columns treat -0.0 and +0.0 as equal, as DuckDB does
+# group: [reads]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+require parquet
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+# signed_zero: identity-partitioned on f (FLOAT) and d (DOUBLE), one partition per group:
+#   ids 1-2: -0.0
+#   id 3: +0.0
+#   id 4: 1.0
+# iceberg-cpp orders -0.0 before +0.0, so pushing down a zero constant would prune a partition DuckDB matches.
+
+# DOUBLE
+
+query I
+SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE d = 0;
+----
+[1, 2, 3]
+
+query I
+SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE d = '-0.0'::DOUBLE;
+----
+[1, 2, 3]
+
+query I
+SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE d >= 0;
+----
+[1, 2, 3, 4]
+
+query I
+SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE d <= '-0.0'::DOUBLE;
+----
+[1, 2, 3]
+
+query I
+SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE d IN (0, 1);
+----
+[1, 2, 3, 4]
+
+# FLOAT
+
+query I
+SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE f = 0;
+----
+[1, 2, 3]
+
+query I
+SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE f = '-0.0'::FLOAT;
+----
+[1, 2, 3]
+
+query I
+SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE f >= 0;
+----
+[1, 2, 3, 4]
+
+query I
+SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE f <= '-0.0'::FLOAT;
+----
+[1, 2, 3]
+
+query I
+SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE f IN (0, 1);
+----
+[1, 2, 3, 4]

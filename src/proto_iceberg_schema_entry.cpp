@@ -79,7 +79,7 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIceb
                                                                        Mutex<TableState>::Guard &tables) {
 	auto &ic_catalog = GetIcebergCatalog();
 	DUCKDB_LOG_DEBUG(context, "proto_iceberg: LoadTable '%s.%s'", name, table_name);
-	auto table_result = ic_catalog.GetRestCatalog().LoadTable(conversion::GetTableIdentifier(name, table_name));
+	auto table_result = (*ic_catalog.LockRestCatalog())->LoadTable(conversion::GetTableIdentifier(name, table_name));
 
 	// Return no entry on LoadTable NotFound exceptions; surface any other error as an exception.
 	if (!table_result.has_value()) {
@@ -183,7 +183,7 @@ void ProtoIcebergSchemaEntry::Scan(ClientContext &context, CatalogType type,
 	// for every table during SHOW ALL TABLES; LoadTable is deferred to LookupEntry.
 	if (!tables->listed) {
 		DUCKDB_LOG_DEBUG(context, "proto_iceberg: ListTables in namespace '%s'", name);
-		auto result = ic_catalog.GetRestCatalog().ListTables(conversion::GetNamespace(name));
+		auto result = (*ic_catalog.LockRestCatalog())->ListTables(conversion::GetNamespace(name));
 		if (!result.has_value() && result.error().kind == iceberg::ErrorKind::kNoSuchNamespace) {
 			// An optimistically-created schema that doesn't exist; nothing to list.
 			MarkNamespaceNotFound();
@@ -196,7 +196,7 @@ void ProtoIcebergSchemaEntry::Scan(ClientContext &context, CatalogType type,
 			if (auto status = tables->store.Lookup(tbl_name); std::holds_alternative<TableStore::Unknown>(status)) {
 				auto create_info = make_uniq<CreateTableInfo>();
 				create_info->table = tbl_name;
-				// N.B. "__"/UNKNOWN placeholder for not-yet-resolved tables to avoid a LoadTable per listed table, see
+				// Use a "__"/UNKNOWN placeholder for not-yet-resolved tables to avoid a LoadTable per listed table, see
 				// https://github.com/duckdb/duckdb-iceberg/issues/515.
 				create_info->columns.AddColumn(ColumnDefinition("__", LogicalType::UNKNOWN));
 				tables->store.Put(tbl_name,
@@ -232,7 +232,7 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LookupEntry(CatalogTransacti
 	return std::visit(
 	    Overloaded {
 	        // If table has been confirmed absent from catalog, report that immediately.
-	        // N.B. On a table not being found in this catalog, DuckDB falls back to searching other sources.
+	        // When a table isn't found in this catalog, DuckDB falls back to searching other sources.
 	        // Our negative cache therefore prevents repeated, potentially costly REST catalog lookups for the
 	        // same missing table.
 	        [](TableStore::Negative &) -> optional_ptr<CatalogEntry> { return nullptr; },

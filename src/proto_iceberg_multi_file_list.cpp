@@ -20,14 +20,16 @@ namespace {
 
 const string kFileSizeKey = "file_size";
 const string kValidateExternalFileCacheKey = "validate_external_file_cache";
+const string kEtagKey = "etag";
+const string kLastModifiedKey = "last_modified";
 
 OpenFileInfo MakeOpenFileInfo(const iceberg::DataFile &df) {
 	// Iceberg data files are immutable; skip per-file HEAD revalidation.
 	unordered_map<string, Value> options = {
 	    {kFileSizeKey, Value::UBIGINT(static_cast<uint64_t>(df.file_size_in_bytes))},
 	    {kValidateExternalFileCacheKey, Value::BOOLEAN(false)},
-	    {"etag", Value("")},
-	    {"last_modified", Value::TIMESTAMP(timestamp_t(0))},
+	    {kEtagKey, Value("")},
+	    {kLastModifiedKey, Value::TIMESTAMP(timestamp_t(0))},
 	};
 
 	OpenFileInfo info(df.file_path);
@@ -49,6 +51,12 @@ std::optional<TableFilterSet> BuildTableFilterSet(ClientContext &context, const 
 	vector<FilterPushdownResult> unused;
 	auto filter_set = combiner.GenerateTableScanFilters(info.column_indexes, unused);
 	return filter_set.filters.empty() ? std::nullopt : std::optional(std::move(filter_set));
+}
+
+/// Whether adding the filters to scan planning can prune data files. Untranslatable filters (e.g. dynamic Top-N
+/// filters) widen to AlwaysTrue, so re-planning with them would re-read manifests only to plan the same files.
+bool CanPrunePlanning(const TableFilterSet &filters, const iceberg::Schema &schema) {
+	return conversion::TranslateOrWidenFilters(filters, schema)->op() != iceberg::Expression::Operation::kTrue;
 }
 
 } // namespace
@@ -74,8 +82,6 @@ iceberg::Result<ProtoIcebergScanPlan> ProtoIcebergMultiFileList::PlanFilesImpl(c
 	std::shared_ptr<iceberg::Expression> filter {};
 	if (!filters.filters.empty()) {
 		filter = conversion::TranslateOrWidenFilters(filters, *info.schema);
-	}
-	if (filter) {
 		scan_builder->Filter(filter);
 	}
 
@@ -163,6 +169,10 @@ ProtoIcebergMultiFileList::ComplexFilterPushdown(ClientContext &, const MultiFil
 	if (!filter_set) {
 		return nullptr;
 	}
+	if (!CanPrunePlanning(*filter_set, *scan_info_->schema)) {
+		DUCKDB_LOG_DEBUG(context_, "proto_iceberg: ComplexFilterPushdown skipped (filters cannot prune data files)");
+		return nullptr;
+	}
 
 	DUCKDB_LOG_DEBUG(context_, "proto_iceberg: ComplexFilterPushdown applied %zu filter(s)",
 	                 filter_set->filters.size());
@@ -196,6 +206,10 @@ ProtoIcebergMultiFileList::DynamicFilterPushdown(ClientContext &, const MultiFil
 
 	if (new_filters.filters.empty()) {
 		DUCKDB_LOG_DEBUG(context_, "proto_iceberg: DynamicFilterPushdown skipped (all filters already pushed)");
+		return nullptr;
+	}
+	if (!CanPrunePlanning(new_filters, *scan_info_->schema)) {
+		DUCKDB_LOG_DEBUG(context_, "proto_iceberg: DynamicFilterPushdown skipped (filters cannot prune data files)");
 		return nullptr;
 	}
 	DUCKDB_LOG_DEBUG(context_, "proto_iceberg: DynamicFilterPushdown applied %zu new filter(s)",

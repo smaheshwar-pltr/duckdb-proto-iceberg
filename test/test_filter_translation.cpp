@@ -13,6 +13,8 @@
 #include "iceberg/schema_field.h"
 #include "iceberg/expression/expression.h"
 
+#include <limits>
+
 using namespace duckdb;
 using namespace duckdb::conversion;
 
@@ -131,6 +133,37 @@ TEST_CASE("unconvertible comparison value widens to AlwaysTrue", "[filter_transl
 	ConstantFilter filter(ExpressionType::COMPARE_EQUAL, Value::BLOB("data"));
 	auto expr = TranslateOrWidenFilter(filter, MakeField("col"));
 	REQUIRE(expr->ToString() == "true");
+}
+
+TEST_CASE("NaN comparison widens to AlwaysTrue", "[filter_translation]") {
+	auto nan = Value::DOUBLE(std::numeric_limits<double>::quiet_NaN());
+	auto field = MakeField("col", iceberg::float64());
+	REQUIRE(TranslateOrWidenFilter(ConstantFilter(ExpressionType::COMPARE_EQUAL, nan), field)->ToString() == "true");
+	REQUIRE(TranslateOrWidenFilter(ConstantFilter(ExpressionType::COMPARE_GREATERTHAN, nan), field)->ToString() ==
+	        "true");
+}
+
+TEST_CASE("zero comparison widens to AlwaysTrue", "[filter_translation]") {
+	REQUIRE(TranslateOrWidenFilter(ConstantFilter(ExpressionType::COMPARE_GREATERTHANOREQUALTO, Value::DOUBLE(0.0)),
+	                               MakeField("col", iceberg::float64()))
+	            ->ToString() == "true");
+	REQUIRE(TranslateOrWidenFilter(ConstantFilter(ExpressionType::COMPARE_EQUAL, Value::FLOAT(-0.0f)),
+	                               MakeField("col", iceberg::float32()))
+	            ->ToString() == "true");
+}
+
+TEST_CASE("IN with NaN or zero widens to AlwaysTrue", "[filter_translation]") {
+	auto field = MakeField("col", iceberg::float64());
+	InFilter with_nan(vector<Value> {Value::DOUBLE(1.0), Value::DOUBLE(std::numeric_limits<double>::quiet_NaN())});
+	REQUIRE(TranslateOrWidenFilter(with_nan, field)->ToString() == "true");
+	InFilter with_zero(vector<Value> {Value::DOUBLE(1.0), Value::DOUBLE(-0.0)});
+	REQUIRE(TranslateOrWidenFilter(with_zero, field)->ToString() == "true");
+}
+
+TEST_CASE("non-zero float comparison is pushed down", "[filter_translation]") {
+	ConstantFilter filter(ExpressionType::COMPARE_GREATERTHAN, Value::DOUBLE(5.0));
+	auto expr = TranslateOrWidenFilter(filter, MakeField("col", iceberg::float64()));
+	REQUIRE(expr->ToString() == "ref(name=\"col\") > 5.000000");
 }
 
 TEST_CASE("optional filter with null child widens to AlwaysTrue", "[filter_translation]") {

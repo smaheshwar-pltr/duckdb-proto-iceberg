@@ -32,6 +32,9 @@ set(EXTENSION_SOURCES
 )
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
+
+# The " " second argument is required by DuckDB's build_loadable_extension()
+# signature (PARAMETERS, which is unused for out-of-tree extensions).
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
 foreach(target ${EXTENSION_NAME} ${LOADABLE_EXTENSION_NAME})

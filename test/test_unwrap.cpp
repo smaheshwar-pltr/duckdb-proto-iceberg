@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <string>
+#include <type_traits>
 
 using namespace duckdb;
 
@@ -30,6 +31,22 @@ TEST_CASE("UnwrapOrThrow moves out of an rvalue result", "[unwrap]") {
 	auto ptr = UnwrapOrThrow(std::move(result), "should not throw");
 	REQUIRE(ptr != nullptr);
 	REQUIRE(*ptr == 7);
+}
+
+TEST_CASE("UnwrapOrThrow returns an lvalue result's value by reference and an rvalue's by value", "[unwrap]") {
+	iceberg::Result<std::string> result = std::string("value");
+	const auto &const_result = result;
+	static_assert(std::is_same_v<decltype(UnwrapOrThrow(result, "")), std::string &>);
+	static_assert(std::is_same_v<decltype(UnwrapOrThrow(const_result, "")), const std::string &>);
+	static_assert(std::is_same_v<decltype(UnwrapOrThrow(std::move(result), "")), std::string>);
+	static_assert(std::is_void_v<decltype(UnwrapOrThrow(iceberg::Status {}, ""))>);
+
+	UnwrapOrThrow(result, "should not throw") += "!";
+	REQUIRE(result.value() == "value!");
+
+	// Binding a temporary result's value to a const reference extends the value's lifetime instead of dangling.
+	const auto &value = UnwrapOrThrow(iceberg::Result<std::string>(std::string(64, 'x')), "should not throw");
+	REQUIRE(value == std::string(64, 'x'));
 }
 
 TEST_CASE("UnwrapOrThrow throws with the formatted message and error text appended", "[unwrap]") {

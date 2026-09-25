@@ -155,7 +155,9 @@ unique_ptr<BaseStatistics> ProtoIcebergTableEntry::GetStatistics(ClientContext &
 }
 
 TableFunction ProtoIcebergTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) {
-	D_ASSERT(scan_info_ && scan_info_->table);
+	if (!scan_info_ || !scan_info_->table) {
+		throw InternalException("Cannot scan Iceberg table '%s' before it is fully loaded", name);
+	}
 
 	auto &ic_catalog = catalog.Cast<ProtoIcebergCatalog>();
 	auto &txn = ProtoIcebergTransaction::Get(context, ic_catalog.GetAttached());

@@ -30,8 +30,8 @@ public:
 		return catalog_uri_;
 	}
 
-	/// Acquires exclusive use of the REST catalog. Every call into it must hold the returned guard, and only for the
-	/// duration of that call.
+	/// Acquires exclusive use of the REST catalog. Every call into it, including through a loaded iceberg::Table (e.g.
+	/// Table::Refresh()), must hold the returned guard, and only for the duration of that call.
 	Mutex<std::shared_ptr<iceberg::rest::RestCatalog>>::Guard LockRestCatalog() {
 		return rest_catalog_.Lock();
 	}
@@ -91,11 +91,8 @@ private:
 
 	string catalog_uri_;
 	string default_schema_;
-	// N.B. All connections to this catalog share one RestCatalog. iceberg-cpp doesn't document RestCatalog as safe for
-	// concurrent use, and it isn't: its HttpClient sends every request through one libcurl connection cache, which
-	// libcurl doesn't support using from concurrent threads. So every call holds this lock, including calls made
-	// through a loaded iceberg::Table, which also references the catalog (e.g. Table::Refresh(), commits).
-	// TODO: Drop the lock once iceberg-cpp documents RestCatalog as safe to share across threads.
+	// TODO: Drop the lock once iceberg-cpp documents RestCatalog as thread-safe. It currently isn't: its HttpClient
+	//   shares one libcurl connection cache across all requests.
 	Mutex<std::shared_ptr<iceberg::rest::RestCatalog>> rest_catalog_;
 };
 

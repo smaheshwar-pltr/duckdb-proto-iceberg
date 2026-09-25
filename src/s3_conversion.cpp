@@ -96,11 +96,8 @@ ConvertS3SecretToIcebergProperties(const case_insensitive_tree_t<Value> &secret)
 	} else if (url_style == kUrlStyleVhost) {
 		properties[string(S3Properties::kPathStyleAccess)] = "false";
 	}
-	// N.B. DuckDB's scheme-less endpoint passes through: iceberg-cpp hands it and s3.ssl.enabled to Arrow, which passes
-	// them to the AWS SDK, which prefixes a scheme-less endpoint with the scheme s3.ssl.enabled selects; see
-	// https://github.com/smaheshwar-pltr/iceberg-cpp/blob/5cbe377ba26e046c7970abae386fb310be2f8c56/src/iceberg/arrow/s3/arrow_s3_file_io.cc#L108-L136
-	// https://github.com/apache/arrow/blob/31b4b6c0a0a7e7c117312d285541a21446675ec6/cpp/src/arrow/filesystem/s3fs.cc#L1104-L1108
-	// https://github.com/aws/aws-sdk-cpp/blob/edd1470c52be92aba22314e45b50efcb09a15dfe/src/aws-cpp-sdk-core/source/endpoint/BuiltInParameters.cpp#L17-L29
+	// DuckDB's scheme-less endpoint passes through: iceberg-cpp hands it and s3.ssl.enabled to Arrow, which passes
+	// them to the AWS SDK, which prefixes a scheme-less endpoint with the scheme s3.ssl.enabled selects.
 	if (auto endpoint = get_string(kEndpoint); !endpoint.empty()) {
 		properties[string(S3Properties::kEndpoint)] = std::move(endpoint);
 	}

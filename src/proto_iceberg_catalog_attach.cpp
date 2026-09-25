@@ -73,10 +73,11 @@ struct CatalogParams {
 	string default_schema;
 };
 
-/// Parses user-provided ATTACH options into CatalogParams.
-CatalogParams ParseAttachOptions(AttachInfo &info) {
+/// Parses extension-specific ATTACH options into CatalogParams. DuckDB consumes its generic options (TYPE, READ_ONLY,
+/// ...) into AttachOptions fields and leaves the rest in AttachOptions::options.
+CatalogParams ParseAttachOptions(const AttachInfo &info, const AttachOptions &options) {
 	CatalogParams params;
-	for (const auto &[key, value] : info.options) {
+	for (const auto &[key, value] : options.options) {
 		if (auto lower_key = StringUtil::Lower(key); lower_key == kEndpoint) {
 			params.uri = value.ToString();
 		} else if (lower_key == kWarehouse) {
@@ -85,7 +86,7 @@ CatalogParams ParseAttachOptions(AttachInfo &info) {
 			params.token = value.ToString();
 		} else if (lower_key == kDefaultSchema) {
 			params.default_schema = value.ToString();
-		} else if (lower_key != "type" && lower_key != "read_only") {
+		} else {
 			throw BinderException("Unrecognized ATTACH option: '%s'", key);
 		}
 	}
@@ -128,8 +129,8 @@ void MergeIcebergSecretParams(CatalogParams &params, ClientContext &context, con
 
 unique_ptr<Catalog> ProtoIcebergCatalog::Attach(optional_ptr<StorageExtensionInfo>, ClientContext &context,
                                                 AttachedDatabase &db, const string &name, AttachInfo &info,
-                                                AttachOptions &) {
-	auto params = ParseAttachOptions(info);
+                                                AttachOptions &options) {
+	auto params = ParseAttachOptions(info, options);
 	MergeIcebergSecretParams(params, context, name);
 	if (params.default_schema.empty()) {
 		params.default_schema = kDefaultNamespace;
@@ -156,7 +157,7 @@ unique_ptr<Catalog> ProtoIcebergCatalog::Attach(optional_ptr<StorageExtensionInf
 
 	auto catalog = make_uniq<ProtoIcebergCatalog>(db, std::move(params.uri), std::move(rest_catalog),
 	                                              std::move(params.default_schema));
-	return std::move(catalog);
+	return catalog;
 }
 
 } // namespace duckdb

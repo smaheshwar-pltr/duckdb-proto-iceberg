@@ -50,6 +50,50 @@ SELECT count(*) FROM lake.default.test_table;
 statement ok
 DETACH lake;
 
+# DuckDB's generic ATTACH options are accepted alongside ours, and option names are case-insensitive
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, Endpoint 'http://localhost:8181', READONLY);
+
+query I
+SELECT readonly FROM duckdb_databases() WHERE database_name = 'lake';
+----
+true
+
+query I
+SELECT count(*) FROM lake.default.test_table;
+----
+5
+
+statement ok
+DETACH lake;
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181', READ_WRITE false);
+
+query I
+SELECT readonly FROM duckdb_databases() WHERE database_name = 'lake';
+----
+true
+
+statement ok
+DETACH lake;
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181', DEFAULT_TABLE 'default.test_table');
+
+query I
+SELECT count(*) FROM lake;
+----
+5
+
+statement ok
+DETACH lake;
+
+statement error
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181', NOT_AN_OPTION 'x');
+----
+Unrecognized ATTACH option: 'not_an_option'
+
 # ATTACH OR REPLACE always reconnects, so a changed ENDPOINT is re-validated
 statement ok
 ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');

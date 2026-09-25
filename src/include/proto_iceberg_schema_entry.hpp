@@ -37,6 +37,10 @@ public:
 	struct TableState {
 		TableStore store;
 		bool listed = false;
+		/// Listing entries a later load replaced.
+		///
+		/// Like DuckDB's own catalogs, we don't free entries mid-transaction, as DuckDB may still reference them.
+		vector<unique_ptr<ProtoIcebergTableEntry>> replaced;
 	};
 
 	optional_ptr<CatalogEntry> CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) override;

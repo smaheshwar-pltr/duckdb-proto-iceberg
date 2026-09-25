@@ -25,13 +25,6 @@ iceberg::SchemaField MakeField(std::string_view name, std::shared_ptr<iceberg::T
 	return iceberg::SchemaField::MakeOptional(1, name, std::move(type));
 }
 
-const double kNaN = std::numeric_limits<double>::quiet_NaN();
-const float kFloatNaN = std::numeric_limits<float>::quiet_NaN();
-
-std::string TranslateToString(const TableFilter &filter, std::shared_ptr<iceberg::Type> type) {
-	return TranslateOrWidenFilter(filter, MakeField("col", std::move(type)))->ToString();
-}
-
 } // namespace
 
 TEST_CASE("equality on integer", "[filter_translation]") {
@@ -140,6 +133,37 @@ TEST_CASE("unconvertible comparison value widens to AlwaysTrue", "[filter_transl
 	ConstantFilter filter(ExpressionType::COMPARE_EQUAL, Value::BLOB("data"));
 	auto expr = TranslateOrWidenFilter(filter, MakeField("col"));
 	REQUIRE(expr->ToString() == "true");
+}
+
+TEST_CASE("NaN comparison widens to AlwaysTrue", "[filter_translation]") {
+	auto nan = Value::DOUBLE(std::numeric_limits<double>::quiet_NaN());
+	auto field = MakeField("col", iceberg::float64());
+	REQUIRE(TranslateOrWidenFilter(ConstantFilter(ExpressionType::COMPARE_EQUAL, nan), field)->ToString() == "true");
+	REQUIRE(TranslateOrWidenFilter(ConstantFilter(ExpressionType::COMPARE_GREATERTHAN, nan), field)->ToString() ==
+	        "true");
+}
+
+TEST_CASE("zero comparison widens to AlwaysTrue", "[filter_translation]") {
+	REQUIRE(TranslateOrWidenFilter(ConstantFilter(ExpressionType::COMPARE_GREATERTHANOREQUALTO, Value::DOUBLE(0.0)),
+	                               MakeField("col", iceberg::float64()))
+	            ->ToString() == "true");
+	REQUIRE(TranslateOrWidenFilter(ConstantFilter(ExpressionType::COMPARE_EQUAL, Value::FLOAT(-0.0f)),
+	                               MakeField("col", iceberg::float32()))
+	            ->ToString() == "true");
+}
+
+TEST_CASE("IN with NaN or zero widens to AlwaysTrue", "[filter_translation]") {
+	auto field = MakeField("col", iceberg::float64());
+	InFilter with_nan(vector<Value> {Value::DOUBLE(1.0), Value::DOUBLE(std::numeric_limits<double>::quiet_NaN())});
+	REQUIRE(TranslateOrWidenFilter(with_nan, field)->ToString() == "true");
+	InFilter with_zero(vector<Value> {Value::DOUBLE(1.0), Value::DOUBLE(-0.0)});
+	REQUIRE(TranslateOrWidenFilter(with_zero, field)->ToString() == "true");
+}
+
+TEST_CASE("non-zero float comparison is pushed down", "[filter_translation]") {
+	ConstantFilter filter(ExpressionType::COMPARE_GREATERTHAN, Value::DOUBLE(5.0));
+	auto expr = TranslateOrWidenFilter(filter, MakeField("col", iceberg::float64()));
+	REQUIRE(expr->ToString() == "ref(name=\"col\") > 5.000000");
 }
 
 TEST_CASE("optional filter with null child widens to AlwaysTrue", "[filter_translation]") {
@@ -357,125 +381,4 @@ TEST_CASE("set-level nested AND resolves column from schema", "[filter_translati
 	                        iceberg::SchemaField::MakeOptional(2, "amount", iceberg::int32())});
 	auto expr = TranslateOrWidenFilters(filter_set, schema);
 	REQUIRE(expr->ToString() == "(ref(name=\"amount\") > 0 and ref(name=\"amount\") < 100)");
-}
-
-TEST_CASE("greater-than on double also matches NaN", "[filter_translation]") {
-	ConstantFilter filter(ExpressionType::COMPARE_GREATERTHAN, Value::DOUBLE(5.0));
-	REQUIRE(TranslateToString(filter, iceberg::float64()) ==
-	        "(ref(name=\"col\") > 5.000000 or is_nan(ref(name=\"col\")))");
-}
-
-TEST_CASE("greater-than-or-equal on float also matches NaN", "[filter_translation]") {
-	ConstantFilter filter(ExpressionType::COMPARE_GREATERTHANOREQUALTO, Value::FLOAT(5.0f));
-	REQUIRE(TranslateToString(filter, iceberg::float32()) ==
-	        "(ref(name=\"col\") >= 5.000000 or is_nan(ref(name=\"col\")))");
-}
-
-TEST_CASE("double comparisons that cannot match NaN or already keep it are unchanged", "[filter_translation]") {
-	auto type = iceberg::float64();
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_LESSTHAN, Value::DOUBLE(5.0)), type) ==
-	        "ref(name=\"col\") < 5.000000");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_LESSTHANOREQUALTO, Value::DOUBLE(5.0)), type) ==
-	        "ref(name=\"col\") <= 5.000000");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_EQUAL, Value::DOUBLE(5.0)), type) ==
-	        "ref(name=\"col\") == 5.000000");
-	// Iceberg never prunes on !=, so NaN rows are kept.
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_NOTEQUAL, Value::DOUBLE(5.0)), type) ==
-	        "ref(name=\"col\") != 5.000000");
-}
-
-TEST_CASE("NaN constant on double translates under NaN-is-largest semantics", "[filter_translation]") {
-	auto type = iceberg::float64();
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_EQUAL, Value::DOUBLE(kNaN)), type) ==
-	        "is_nan(ref(name=\"col\"))");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_GREATERTHANOREQUALTO, Value::DOUBLE(kNaN)),
-	                          type) == "is_nan(ref(name=\"col\"))");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_NOTEQUAL, Value::DOUBLE(kNaN)), type) ==
-	        "not_nan(ref(name=\"col\"))");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_LESSTHAN, Value::DOUBLE(kNaN)), type) ==
-	        "not_nan(ref(name=\"col\"))");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_LESSTHANOREQUALTO, Value::DOUBLE(kNaN)), type) ==
-	        "not_null(ref(name=\"col\"))");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_GREATERTHAN, Value::DOUBLE(kNaN)), type) ==
-	        "false");
-}
-
-TEST_CASE("NaN constant on float", "[filter_translation]") {
-	auto type = iceberg::float32();
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_EQUAL, Value::FLOAT(kFloatNaN)), type) ==
-	        "is_nan(ref(name=\"col\"))");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_LESSTHAN, Value::FLOAT(-kFloatNaN)), type) ==
-	        "not_nan(ref(name=\"col\"))");
-}
-
-TEST_CASE("equality with either zero matches both signed zeros", "[filter_translation]") {
-	auto type = iceberg::float64();
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_EQUAL, Value::DOUBLE(0.0)), type) ==
-	        "ref(name=\"col\") in [-0.000000, 0.000000]");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_EQUAL, Value::DOUBLE(-0.0)), type) ==
-	        "ref(name=\"col\") in [-0.000000, 0.000000]");
-}
-
-TEST_CASE("inclusive range bounds at zero keep both signed zeros", "[filter_translation]") {
-	auto type = iceberg::float32();
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_GREATERTHANOREQUALTO, Value::FLOAT(0.0f)), type) ==
-	        "(ref(name=\"col\") >= -0.000000 or is_nan(ref(name=\"col\")))");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_LESSTHANOREQUALTO, Value::FLOAT(-0.0f)), type) ==
-	        "ref(name=\"col\") <= 0.000000");
-}
-
-TEST_CASE("strict comparisons with zero keep their zero", "[filter_translation]") {
-	// DuckDB excludes both zeros from x > 0 and x < 0, so the constant's own sign is never narrower.
-	auto type = iceberg::float64();
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_GREATERTHAN, Value::DOUBLE(-0.0)), type) ==
-	        "(ref(name=\"col\") > -0.000000 or is_nan(ref(name=\"col\")))");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_LESSTHAN, Value::DOUBLE(0.0)), type) ==
-	        "ref(name=\"col\") < 0.000000");
-}
-
-TEST_CASE("IN on double with NaN also matches NaN", "[filter_translation]") {
-	InFilter filter(vector<Value> {Value::DOUBLE(1.0), Value::DOUBLE(kNaN)});
-	REQUIRE(TranslateToString(filter, iceberg::float64()) ==
-	        "(ref(name=\"col\") in [1.000000] or is_nan(ref(name=\"col\")))");
-}
-
-TEST_CASE("IN on double with only NaN becomes is_nan", "[filter_translation]") {
-	InFilter filter(vector<Value> {Value::DOUBLE(kNaN)});
-	REQUIRE(TranslateToString(filter, iceberg::float64()) == "is_nan(ref(name=\"col\"))");
-}
-
-TEST_CASE("IN on float with zero matches both signed zeros", "[filter_translation]") {
-	InFilter filter(vector<Value> {Value::FLOAT(2.0f), Value::FLOAT(-0.0f), Value::FLOAT(0.0f)});
-	REQUIRE(TranslateToString(filter, iceberg::float32()) == "ref(name=\"col\") in [2.000000, -0.000000, 0.000000]");
-}
-
-TEST_CASE("IN on double without NaN or zero is unchanged", "[filter_translation]") {
-	InFilter filter(vector<Value> {Value::DOUBLE(1.0), Value::DOUBLE(2.0)});
-	REQUIRE(TranslateToString(filter, iceberg::float64()) == "ref(name=\"col\") in [1.000000, 2.000000]");
-}
-
-TEST_CASE("non-floating constants on a double column widen to AlwaysTrue", "[filter_translation]") {
-	auto type = iceberg::float64();
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_GREATERTHAN, Value::INTEGER(5)), type) == "true");
-	REQUIRE(TranslateToString(ConstantFilter(ExpressionType::COMPARE_EQUAL, Value::FLOAT(1.0f)), type) == "true");
-	REQUIRE(TranslateToString(InFilter(vector<Value> {Value::INTEGER(1), Value::INTEGER(2)}), type) == "true");
-}
-
-TEST_CASE("OR with a NaN constant on double", "[filter_translation]") {
-	ConjunctionOrFilter filter;
-	filter.child_filters.push_back(make_uniq<ConstantFilter>(ExpressionType::COMPARE_EQUAL, Value::DOUBLE(kNaN)));
-	filter.child_filters.push_back(make_uniq<ConstantFilter>(ExpressionType::COMPARE_LESSTHAN, Value::DOUBLE(1.0)));
-	REQUIRE(TranslateToString(filter, iceberg::float64()) ==
-	        "(is_nan(ref(name=\"col\")) or ref(name=\"col\") < 1.000000)");
-}
-
-TEST_CASE("set-level greater-than on a double column also matches NaN", "[filter_translation]") {
-	TableFilterSet filter_set;
-	filter_set.PushFilter(ColumnIndex(1),
-	                      make_uniq<ConstantFilter>(ExpressionType::COMPARE_GREATERTHAN, Value::DOUBLE(5.0)));
-
-	iceberg::Schema schema({iceberg::SchemaField::MakeOptional(1, "id", iceberg::int32()),
-	                        iceberg::SchemaField::MakeOptional(2, "score", iceberg::float64())});
-	auto expr = TranslateOrWidenFilters(filter_set, schema);
-	REQUIRE(expr->ToString() == "(ref(name=\"score\") > 5.000000 or is_nan(ref(name=\"score\")))");
 }

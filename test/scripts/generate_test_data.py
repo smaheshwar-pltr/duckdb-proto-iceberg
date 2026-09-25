@@ -759,40 +759,6 @@ def create_time_table(catalog):
     print(f"  Inserted {len(data)} rows into 'default.time_table'")
 
 
-def create_nan_table(catalog):
-    """FLOAT and DOUBLE columns with NaN, one append per data file.
-
-    Files: NaN only (ids 1-2), NaN mixed with small values (ids 3-5), and ordinary
-    values plus a NULL (ids 6-9). Parquet min/max statistics exclude NaN, so the
-    mixed file's bounds are [1.0, 2.0].
-    """
-    schema = Schema(
-        NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
-        NestedField(field_id=2, name="f", field_type=FloatType(), required=False),
-        NestedField(field_id=3, name="d", field_type=DoubleType(), required=False),
-    )
-
-    table = drop_and_create(catalog, "default.nan_values", schema)
-
-    nan = float("nan")
-    batches = [
-        ([1, 2], [nan, nan]),
-        ([3, 4, 5], [nan, 1.0, 2.0]),
-        ([6, 7, 8, 9], [10.0, 20.0, 30.0, None]),
-    ]
-    for ids, values in batches:
-        table.append(
-            pa.table(
-                {
-                    "id": pa.array(ids, type=pa.int32()),
-                    "f": pa.array(values, type=pa.float32()),
-                    "d": pa.array(values, type=pa.float64()),
-                }
-            )
-        )
-    print("  Inserted 9 rows into 'default.nan_values' (3 files)")
-
-
 def create_signed_zero_table(catalog):
     """FLOAT and DOUBLE identity partitions holding -0.0, +0.0 and 1.0, one file each."""
     schema = Schema(
@@ -850,9 +816,6 @@ def main():
     create_add_column_table(catalog)
     create_drop_column_table(catalog)
     create_time_table(catalog)
-
-    create_nan_table(catalog)
-    assert_file_count(catalog, "default.nan_values", 3)
 
     create_signed_zero_table(catalog)
     assert_file_count(catalog, "default.signed_zero", 3)

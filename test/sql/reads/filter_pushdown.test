@@ -201,3 +201,35 @@ query I
 SELECT count(*) FROM duckdb_logs() WHERE message LIKE 'proto_iceberg: planned % for ''default.all_types''%';
 ----
 1
+
+# NaN filter constants aren't pushed down, because iceberg-cpp rejects NaN literals.
+
+query I
+SELECT count(*) FROM lake.default.all_types WHERE col_double < 'NaN'::DOUBLE;
+----
+3
+
+query I
+SELECT count(*) FROM lake.default.all_types WHERE col_double <> 'NaN'::DOUBLE;
+----
+3
+
+query I
+SELECT count(*) FROM lake.default.all_types WHERE col_double > 'NaN'::DOUBLE;
+----
+0
+
+query I
+SELECT count(*) FROM lake.default.all_types WHERE col_float < 'NaN'::FLOAT;
+----
+3
+
+query I
+SELECT count(*) FROM lake.default.all_types WHERE col_float <> 'NaN'::FLOAT;
+----
+3
+
+query I
+SELECT count(*) FROM lake.default.all_types WHERE col_float > 'NaN'::FLOAT;
+----
+0

@@ -135,13 +135,13 @@ jobs:
           echo "REST catalog did not become ready"
           docker compose -f test/docker/docker-compose.yml logs
           exit 1
-      - name: Wait for MinIO
+      - name: Wait for RustFS
         run: |
           for i in $(seq 1 15); do
-            curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1 && exit 0
+            curl -sf http://localhost:9000/health/ready > /dev/null 2>&1 && exit 0
             sleep 2
           done
-          echo "MinIO did not become ready"
+          echo "RustFS did not become ready"
           docker compose -f test/docker/docker-compose.yml logs
           exit 1
       - name: Generate test data

@@ -42,15 +42,15 @@ for i in $(seq 1 30); do
 done
 
 for i in $(seq 1 15); do
-    if curl -sf http://localhost:9000/minio/health/live > /dev/null 2>&1; then
-        echo "MinIO is ready."
+    if curl -sf http://localhost:9000/health/ready > /dev/null 2>&1; then
+        echo "RustFS is ready."
         break
     fi
     if [ "$i" -eq 15 ]; then
-        echo "ERROR: MinIO did not become ready in time."
+        echo "ERROR: RustFS did not become ready in time."
         exit 1
     fi
-    echo "  Waiting for MinIO... ($i/15)"
+    echo "  Waiting for RustFS... ($i/15)"
     sleep 2
 done
 

@@ -145,6 +145,7 @@ message(STATUS "[proto_iceberg] Found iceberg at ${ICEBERG_INSTALL_PREFIX}")
 set(EXTENSION_SOURCES
     src/proto_iceberg_extension.cpp
     src/conversion.cpp
+    src/s3_conversion.cpp
     src/proto_iceberg_catalog.cpp
     src/proto_iceberg_catalog_attach.cpp
     src/proto_iceberg_transaction.cpp

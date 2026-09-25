@@ -1,5 +1,5 @@
 #include "constants.hpp"
-#include "conversion.hpp"
+#include "s3_conversion.hpp"
 #include "proto_iceberg_table_entry.hpp"
 #include "proto_iceberg_catalog.hpp"
 #include "proto_iceberg_transaction.hpp"
@@ -24,16 +24,17 @@
 namespace duckdb {
 namespace {
 
+using constants::kConfigProvider;
+using constants::kS3SecretType;
+
 const string kParquetScan = "parquet_scan";
 const string kTableScanName = "proto_iceberg_table_scan";
 const string kParquetExtension = "parquet";
 const string kHttpfsExtension = "httpfs";
 
-namespace s3 = constants::s3;
-
 CreateSecretInput MakeBaseS3SecretInput() {
-	return {.type = s3::kSecretType,
-	        .provider = s3::kProvider,
+	return {.type = kS3SecretType,
+	        .provider = kConfigProvider,
 	        .storage_type = "memory",
 	        .on_conflict = OnCreateConflict::REPLACE_ON_CONFLICT,
 	        .persist_type = SecretPersistType::TEMPORARY};

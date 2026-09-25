@@ -16,12 +16,12 @@
 namespace duckdb {
 namespace {
 
+using constants::kConfigProvider;
 using constants::kEndpoint;
 using constants::kIcebergSecretType;
 using constants::kRedactedSecrets;
 using constants::kToken;
 
-const string kConfigProvider = "config";
 const string kIcebergExtensionName = "proto_iceberg";
 const string kStorageExtensionName = "iceberg";
 

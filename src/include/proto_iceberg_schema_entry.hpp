@@ -37,6 +37,8 @@ public:
 	struct TableState {
 		TableStore store;
 		bool listed = false;
+		/// Listing entries replaced by a later load; kept alive as DuckDB may still reference them in the transaction.
+		vector<unique_ptr<ProtoIcebergTableEntry>> replaced;
 	};
 
 	optional_ptr<CatalogEntry> CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) override;

@@ -63,7 +63,7 @@ std::string_view ToDuckDBEndpoint(std::string_view endpoint) {
 	} else if (endpoint.starts_with(kHttpScheme)) {
 		endpoint.remove_prefix(kHttpScheme.size());
 	}
-	// N.B. httpfs appends the request path to the endpoint's path, so a trailing slash would double up.
+	// httpfs appends the request path to the endpoint's path, so a trailing slash would double up.
 	while (endpoint.ends_with('/')) {
 		endpoint.remove_suffix(1);
 	}

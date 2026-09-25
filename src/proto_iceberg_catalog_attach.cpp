@@ -1,4 +1,5 @@
 #include "constants.hpp"
+#include "s3_conversion.hpp"
 #include "unwrap.hpp"
 #include "proto_iceberg_catalog.hpp"
 
@@ -20,20 +21,22 @@ using constants::kDefaultNamespace;
 using constants::kDefaultSchema;
 using constants::kEndpoint;
 using constants::kIcebergSecretType;
+using constants::kS3SecretType;
 using constants::kToken;
 using constants::kWarehouse;
 
 const string kUri = "uri";
 const string kHeaderAuthorization = "header.Authorization";
-
-namespace s3 = constants::s3;
+/// Path to look up the user's S3 secret at: only secrets scoped to all S3 paths match it, not per-bucket ones or the
+/// per-table secrets this extension creates.
+const string kS3RootPath = "s3://";
 
 /// Reads DuckDB's S3 secret and converts it to iceberg-cpp S3 properties, so that
 /// the iceberg-cpp REST catalog then uses it as base / default IO properties.
 unordered_map<string, string> ReadS3SecretAsIcebergProperties(ClientContext &context) {
 	auto &secret_manager = SecretManager::Get(context);
 	auto transaction = CatalogTransaction::GetSystemCatalogTransaction(context);
-	auto secret_match = secret_manager.LookupSecret(transaction, s3::kSecretScope, s3::kSecretType);
+	auto secret_match = secret_manager.LookupSecret(transaction, kS3RootPath, kS3SecretType);
 	if (!secret_match.HasMatch()) {
 		return {};
 	}
@@ -43,26 +46,7 @@ unordered_map<string, string> ReadS3SecretAsIcebergProperties(ClientContext &con
 		return {};
 	}
 
-	unordered_map<string, string> props;
-	for (const auto &[duckdb_key, iceberg_key, kind] : s3::kPropertyMappings) {
-		if (Value value; kv_secret->TryGetValue(string(duckdb_key), value)) {
-			switch (kind) {
-			case s3::PropertyKind::kPlain:
-				props[string(iceberg_key)] = value.ToString();
-				break;
-			case s3::PropertyKind::kPathStyle:
-				if (value.ToString() == s3::kUrlStylePath) {
-					props[string(iceberg_key)] = "true";
-				}
-				break;
-			case s3::PropertyKind::kSsl:
-				props[string(iceberg_key)] =
-				    BooleanValue::Get(value.DefaultCastAs(LogicalType::BOOLEAN)) ? "true" : "false";
-				break;
-			}
-		}
-	}
-	return props;
+	return conversion::ConvertS3SecretToIcebergProperties(kv_secret->secret_map);
 }
 
 /// User-provided options to connect to the REST catalog.

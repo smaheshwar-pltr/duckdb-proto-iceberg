@@ -1,4 +1,5 @@
 #include "constants.hpp"
+#include "s3_conversion.hpp"
 #include "proto_iceberg_table_entry.hpp"
 #include "proto_iceberg_catalog.hpp"
 #include "proto_iceberg_transaction.hpp"
@@ -23,16 +24,17 @@
 namespace duckdb {
 namespace {
 
+using constants::kConfigProvider;
+using constants::kS3SecretType;
+
 const string kParquetScan = "parquet_scan";
 const string kTableScanName = "proto_iceberg_table_scan";
 const string kParquetExtension = "parquet";
 const string kHttpfsExtension = "httpfs";
 
-namespace s3 = constants::s3;
-
 CreateSecretInput MakeBaseS3SecretInput() {
-	return {.type = s3::kSecretType,
-	        .provider = s3::kProvider,
+	return {.type = kS3SecretType,
+	        .provider = kConfigProvider,
 	        .storage_type = "memory",
 	        .on_conflict = OnCreateConflict::REPLACE_ON_CONFLICT,
 	        .persist_type = SecretPersistType::TEMPORARY};
@@ -72,35 +74,8 @@ CreateSecretInput BuildScopedS3Secret(const string &catalog_name, const iceberg:
 		input.scope.push_back(scope_with_slash(std::move(write_data_path)));
 	}
 
-	const auto &properties = io->properties();
 	// TODO: Respect storage credentials REST field, not just the credentials in IO properties
-	auto get_config = [&properties](const std::string_view key) -> string {
-		if (auto it = properties.find(string(key)); it != properties.end()) {
-			return it->second;
-		}
-		return {};
-	};
-
-	for (const auto &[duckdb_key, iceberg_key, kind] : s3::kPropertyMappings) {
-		switch (kind) {
-		case s3::PropertyKind::kPlain:
-			if (auto value = get_config(iceberg_key); !value.empty()) {
-				input.options[string(duckdb_key)] = Value(std::move(value));
-			}
-			break;
-		case s3::PropertyKind::kPathStyle:
-			if (get_config(iceberg_key) == "true") {
-				input.options[string(duckdb_key)] = Value(s3::kUrlStylePath);
-			}
-			break;
-		case s3::PropertyKind::kSsl:
-			if (get_config(iceberg_key) == "false") {
-				input.options[string(duckdb_key)] = Value::BOOLEAN(false);
-			}
-			break;
-		}
-	}
-
+	input.options = conversion::ConvertIcebergPropertiesToS3Secret(io->properties());
 	return input;
 }
 

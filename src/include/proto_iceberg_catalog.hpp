@@ -28,7 +28,7 @@ public:
 		return catalog_uri_;
 	}
 
-	iceberg::rest::RestCatalog &GetRestCatalog() const {
+	iceberg::rest::RestCatalog &GetRestCatalog() {
 		return *rest_catalog_;
 	}
 

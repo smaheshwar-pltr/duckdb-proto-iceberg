@@ -41,26 +41,20 @@ inline const std::string kEndpoint = "endpoint";
 inline const std::string kUrlStyle = "url_style";
 inline const std::string kUseSsl = "use_ssl";
 inline const std::string kUrlStylePath = "path";
-
-enum class PropertyKind { kPlain, kPathStyle, kSsl };
+inline const std::string kUrlStyleVhost = "vhost";
 
 struct PropertyMapping {
 	std::string_view duckdb_key;
 	std::string_view iceberg_key;
-	PropertyKind kind;
 };
 
-/// Maps DuckDB and iceberg-cpp S3 configuration correspondence bidirectionally.
-inline const std::array<PropertyMapping, 7> kPropertyMappings = {{
-    // Key and value correspondence, passed through verbatim
-    {kKeyId, iceberg::arrow::S3Properties::kAccessKeyId, PropertyKind::kPlain},
-    {kSecret, iceberg::arrow::S3Properties::kSecretAccessKey, PropertyKind::kPlain},
-    {kSessionToken, iceberg::arrow::S3Properties::kSessionToken, PropertyKind::kPlain},
-    {kRegion, iceberg::arrow::S3Properties::kRegion, PropertyKind::kPlain},
-    {kEndpoint, iceberg::arrow::S3Properties::kEndpoint, PropertyKind::kPlain},
-    // Key but not value correspondence, special-cased
-    {kUrlStyle, iceberg::arrow::S3Properties::kPathStyleAccess, PropertyKind::kPathStyle},
-    {kUseSsl, iceberg::arrow::S3Properties::kSslEnabled, PropertyKind::kSsl},
+/// DuckDB and iceberg-cpp S3 keys whose values correspond verbatim. Endpoint, URL style and SSL values differ in
+/// format and are converted in conversion.hpp.
+inline const std::array<PropertyMapping, 4> kPlainPropertyMappings = {{
+    {kKeyId, iceberg::arrow::S3Properties::kAccessKeyId},
+    {kSecret, iceberg::arrow::S3Properties::kSecretAccessKey},
+    {kSessionToken, iceberg::arrow::S3Properties::kSessionToken},
+    {kRegion, iceberg::arrow::S3Properties::kRegion},
 }};
 
 } // namespace s3

@@ -185,7 +185,8 @@ add_executable(proto_iceberg_unittest EXCLUDE_FROM_ALL
     test/test_signed_store.cpp
     test/test_column_definition.cpp
     test/test_mutex.cpp
-    test/test_unwrap.cpp)
+    test/test_unwrap.cpp
+    test/test_s3_conversion.cpp)
 set_target_properties(proto_iceberg_unittest PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON)

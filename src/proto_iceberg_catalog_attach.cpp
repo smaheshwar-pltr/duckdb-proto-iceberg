@@ -1,4 +1,5 @@
 #include "constants.hpp"
+#include "conversion.hpp"
 #include "unwrap.hpp"
 #include "proto_iceberg_catalog.hpp"
 
@@ -43,26 +44,7 @@ unordered_map<string, string> ReadS3SecretAsIcebergProperties(ClientContext &con
 		return {};
 	}
 
-	unordered_map<string, string> props;
-	for (const auto &[duckdb_key, iceberg_key, kind] : s3::kPropertyMappings) {
-		if (Value value; kv_secret->TryGetValue(string(duckdb_key), value)) {
-			switch (kind) {
-			case s3::PropertyKind::kPlain:
-				props[string(iceberg_key)] = value.ToString();
-				break;
-			case s3::PropertyKind::kPathStyle:
-				if (value.ToString() == s3::kUrlStylePath) {
-					props[string(iceberg_key)] = "true";
-				}
-				break;
-			case s3::PropertyKind::kSsl:
-				props[string(iceberg_key)] =
-				    BooleanValue::Get(value.DefaultCastAs(LogicalType::BOOLEAN)) ? "true" : "false";
-				break;
-			}
-		}
-	}
-	return props;
+	return conversion::ConvertS3SecretToIcebergProperties(kv_secret->secret_map);
 }
 
 /// User-provided options to connect to the REST catalog.

@@ -1,4 +1,5 @@
 #include "conversion.hpp"
+#include "constants.hpp"
 
 #include "duckdb/planner/table_filter.hpp"
 #include "duckdb/planner/filter/constant_filter.hpp"
@@ -267,6 +268,102 @@ std::shared_ptr<iceberg::Expression> TranslateOrWidenFilter(const TableFilter &f
 	default:
 		return iceberg::Expressions::AlwaysTrue();
 	}
+}
+
+namespace {
+
+namespace s3 = constants::s3;
+using iceberg::arrow::S3Properties;
+
+/// Splits an Iceberg S3 endpoint URI into DuckDB's scheme-less endpoint and, for an http(s) scheme, whether it
+/// implies SSL. For example, http://host:9000/path becomes host:9000/path without SSL.
+std::pair<string, std::optional<bool>> SplitEndpointScheme(std::string_view endpoint) {
+	constexpr std::string_view kHttp = "http://";
+	constexpr std::string_view kHttps = "https://";
+	std::optional<bool> use_ssl;
+	if (endpoint.starts_with(kHttps)) {
+		endpoint.remove_prefix(kHttps.size());
+		use_ssl = true;
+	} else if (endpoint.starts_with(kHttp)) {
+		endpoint.remove_prefix(kHttp.size());
+		use_ssl = false;
+	}
+	// N.B. httpfs appends the request path to the endpoint's path, so a trailing slash would double up.
+	while (endpoint.ends_with('/')) {
+		endpoint.remove_suffix(1);
+	}
+	return {string(endpoint), use_ssl};
+}
+
+} // namespace
+
+std::unordered_map<std::string, std::string>
+ConvertS3SecretToIcebergProperties(const case_insensitive_tree_t<Value> &secret) {
+	auto get = [&secret](std::string_view key) -> std::optional<Value> {
+		if (auto it = secret.find(string(key)); it != secret.end() && !it->second.IsNull()) {
+			return it->second;
+		}
+		return std::nullopt;
+	};
+	auto get_string = [&get](std::string_view key) -> string {
+		auto value = get(key);
+		return value ? value->ToString() : string();
+	};
+
+	std::unordered_map<std::string, std::string> properties;
+	for (const auto &[duckdb_key, iceberg_key] : s3::kPlainPropertyMappings) {
+		if (auto value = get_string(duckdb_key); !value.empty()) {
+			properties[string(iceberg_key)] = std::move(value);
+		}
+	}
+	// N.B. iceberg-cpp (via the AWS SDK) prefixes a scheme-less endpoint with the scheme that s3.ssl.enabled implies,
+	// so DuckDB's scheme-less endpoint passes through verbatim.
+	if (auto endpoint = get_string(s3::kEndpoint); !endpoint.empty()) {
+		properties[string(S3Properties::kEndpoint)] = std::move(endpoint);
+	}
+	if (auto url_style = get_string(s3::kUrlStyle); url_style == s3::kUrlStylePath) {
+		properties[string(S3Properties::kPathStyleAccess)] = "true";
+	} else if (url_style == s3::kUrlStyleVhost) {
+		properties[string(S3Properties::kPathStyleAccess)] = "false";
+	}
+	if (auto use_ssl = get(s3::kUseSsl)) {
+		properties[string(S3Properties::kSslEnabled)] =
+		    BooleanValue::Get(use_ssl->DefaultCastAs(LogicalType::BOOLEAN)) ? "true" : "false";
+	}
+	return properties;
+}
+
+case_insensitive_map_t<Value>
+ConvertIcebergPropertiesToS3Secret(const std::unordered_map<std::string, std::string> &properties) {
+	auto get = [&properties](std::string_view key) -> std::string_view {
+		if (auto it = properties.find(string(key)); it != properties.end()) {
+			return it->second;
+		}
+		return {};
+	};
+
+	case_insensitive_map_t<Value> options;
+	for (const auto &[duckdb_key, iceberg_key] : s3::kPlainPropertyMappings) {
+		if (auto value = get(iceberg_key); !value.empty()) {
+			options[string(duckdb_key)] = Value(string(value));
+		}
+	}
+	if (auto path_style = get(S3Properties::kPathStyleAccess); path_style == "true") {
+		options[s3::kUrlStyle] = Value(s3::kUrlStylePath);
+	} else if (path_style == "false") {
+		options[s3::kUrlStyle] = Value(s3::kUrlStyleVhost);
+	}
+	if (auto ssl_enabled = get(S3Properties::kSslEnabled); ssl_enabled == "true" || ssl_enabled == "false") {
+		options[s3::kUseSsl] = Value::BOOLEAN(ssl_enabled == "true");
+	}
+	if (auto [endpoint, use_ssl] = SplitEndpointScheme(get(S3Properties::kEndpoint)); !endpoint.empty()) {
+		options[s3::kEndpoint] = Value(std::move(endpoint));
+		// As in iceberg-cpp, the endpoint's scheme takes precedence over s3.ssl.enabled.
+		if (use_ssl) {
+			options[s3::kUseSsl] = Value::BOOLEAN(*use_ssl);
+		}
+	}
+	return options;
 }
 
 } // namespace duckdb::conversion

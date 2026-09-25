@@ -27,6 +27,7 @@ const string kParquetScan = "parquet_scan";
 const string kTableScanName = "proto_iceberg_table_scan";
 const string kParquetExtension = "parquet";
 const string kHttpfsExtension = "httpfs";
+const string kCanHaveNan = "can_have_nan";
 
 namespace s3 = constants::s3;
 
@@ -153,7 +154,9 @@ vector<Value> MakePlaceholderScanInputs() {
 
 pair<TableFunction, unique_ptr<FunctionData>> BindIcebergScan(ClientContext &context, TableFunction iceberg_scan) {
 	auto inputs = MakePlaceholderScanInputs();
-	named_parameter_map_t named_params;
+	// N.B. Parquet min/max statistics exclude NaN. Without can_have_nan, the Parquet reader skips row groups whose
+	// bounds rule out a filter even though their NaN rows match it (e.g. NaN > 5).
+	named_parameter_map_t named_params {{kCanHaveNan, Value::BOOLEAN(true)}};
 	vector<LogicalType> input_table_types;
 	vector<string> input_table_names;
 	TableFunctionRef empty_ref;

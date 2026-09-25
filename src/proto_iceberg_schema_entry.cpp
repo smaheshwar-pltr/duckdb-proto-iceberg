@@ -77,8 +77,6 @@ shared_ptr<ProtoIcebergScanInfo> ResolveScanInfo(ClientContext &context, ProtoIc
 optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIcebergTransaction &txn,
                                                                        const string &table_name, ClientContext &context,
                                                                        Mutex<TableState>::Guard &tables) {
-	// N.B. Like DuckDB's own catalogs, don't free entries mid-transaction: DuckDB may still reference a listing entry
-	// handed out by Scan, so retain any that the store is about to overwrite.
 	auto retain_listing_entry = [&] {
 		auto status = tables->store.Lookup(table_name);
 		if (auto *entry = std::get_if<TableStore::Positive>(&status)) {

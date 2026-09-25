@@ -37,7 +37,9 @@ public:
 	struct TableState {
 		TableStore store;
 		bool listed = false;
-		/// Listing entries replaced by a later load; kept alive as DuckDB may still reference them in the transaction.
+		/// Listing entries a later load replaced.
+		///
+		/// Like DuckDB's own catalogs, we don't free entries mid-transaction, as DuckDB may still reference them.
 		vector<unique_ptr<ProtoIcebergTableEntry>> replaced;
 	};
 

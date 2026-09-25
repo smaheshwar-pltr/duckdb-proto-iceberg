@@ -9,7 +9,6 @@
 
 #include <map>
 #include <ranges>
-#include <set>
 #include <string>
 #include <string_view>
 
@@ -67,22 +66,12 @@ public:
 	/// Acquires the schema store lock. Operations are performed through the returned handle.
 	LockedSchemas LockSchemas();
 
-	/// Tracks a temporary DuckDB secret created for vended credentials.
-	void TrackSecret(std::string_view secret_name);
-
-	/// Returns whether a secret with this name is already tracked.
-	bool HasTrackedSecret(std::string_view secret_name) const;
-
-	/// Drops all tracked temporary secrets.
-	void DropSecrets(ClientContext &context);
-
 	/// Gets the ProtoIcebergTransaction from a ClientContext.
 	static ProtoIcebergTransaction &Get(ClientContext &context, AttachedDatabase &db);
 
 private:
 	int64_t start_timestamp_ms_;
 	Mutex<LockedSchemas::SchemaState> schema_state_;
-	Mutex<std::set<string>> created_secrets_;
 };
 
 class ProtoIcebergTransactionManager : public TransactionManager {
@@ -96,9 +85,6 @@ public:
 	void Checkpoint(ClientContext &context, bool force) override;
 
 private:
-	/// Drops a transaction's scoped secrets via a nested Connection.
-	void DropSecretsInNestedTxn(ProtoIcebergTransaction &txn) const;
-
 	ProtoIcebergCatalog &catalog_;
 	Mutex<reference_map_t<Transaction, unique_ptr<ProtoIcebergTransaction>>> transactions_;
 };

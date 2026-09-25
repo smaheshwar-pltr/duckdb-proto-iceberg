@@ -25,8 +25,8 @@ DuckDB Engine
 ## Building
 
 ```sh
-git clone --recurse-submodules https://github.com/smaheshwar-pltr/duckdb-iceberg-cpp.git
-cd duckdb-iceberg-cpp
+git clone --recurse-submodules https://github.com/smaheshwar-pltr/duckdb-proto-iceberg.git
+cd duckdb-proto-iceberg
 
 # Debug
 GEN=ninja make debug

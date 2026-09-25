@@ -47,3 +47,54 @@ query I
 SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%ListNamespaces%';
 ----
 1
+
+# Within a transaction, the namespace listing is authoritative
+statement ok
+BEGIN;
+
+# Before listing, an unknown namespace is accepted (deferred validation)
+statement ok
+USE lake.does_not_exist;
+
+# Once listed, it's no longer reported
+query I
+SELECT schema_name FROM duckdb_schemas() WHERE database_name = 'lake' ORDER BY schema_name;
+----
+default
+testing
+
+# After listing, unknown namespaces are rejected immediately
+statement error
+USE lake.also_does_not_exist;
+----
+No catalog + schema named
+
+# ...without a LoadTable round trip
+statement error
+SELECT * FROM lake.also_does_not_exist.some_table;
+----
+does not exist
+
+# Listed namespaces, including via default-schema redirection, still resolve
+query I
+SELECT count(*) FROM lake.main.test_table;
+----
+5
+
+query IT
+SELECT * FROM lake.testing.sample ORDER BY id;
+----
+1	x
+2	y
+3	z
+
+statement ok
+USE memory;
+
+statement ok
+COMMIT;
+
+query I
+SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%LoadTable%does_not_exist%';
+----
+0

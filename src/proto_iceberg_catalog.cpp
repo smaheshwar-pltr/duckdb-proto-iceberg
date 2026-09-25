@@ -8,6 +8,9 @@
 
 #include "iceberg/arrow/arrow_io_util.h"
 
+#include <set>
+#include <string_view>
+
 namespace duckdb {
 
 ProtoIcebergCatalog::ProtoIcebergCatalog(AttachedDatabase &db_p, string catalog_uri,
@@ -55,6 +58,7 @@ void ProtoIcebergCatalog::ScanSchemas(ClientContext &context, std::function<void
 
 		schemas.MarkListed();
 
+		std::set<std::string_view> listed;
 		for (auto &ns : namespaces) {
 			if (ns.levels.size() != 1) {
 				// We don't expect multi-level namespaces being children of the root namespace.
@@ -64,10 +68,19 @@ void ProtoIcebergCatalog::ScanSchemas(ClientContext &context, std::function<void
 			}
 
 			auto &ns_name = ns.levels[0];
+			listed.insert(ns_name);
 			if (!schemas.Lookup(ns_name)) {
 				schemas.Store(ns_name, MakeSchemaEntry(ns_name));
 			}
 		}
+
+		// The listing is authoritative for the rest of the transaction, so optimistically-created schemas that it
+		// doesn't contain don't exist.
+		schemas.ForEach([&](ProtoIcebergSchemaEntry &entry) {
+			if (!listed.contains(entry.name)) {
+				entry.MarkNamespaceNotFound();
+			}
+		});
 	}
 
 	schemas.ForEach([&](ProtoIcebergSchemaEntry &entry) { callback(entry); });
@@ -86,15 +99,17 @@ optional_ptr<SchemaCatalogEntry> ProtoIcebergCatalog::LookupSchema(CatalogTransa
 	auto &txn = ProtoIcebergTransaction::Get(transaction.GetContext(), GetAttached());
 	auto schemas = txn.LockSchemas();
 
-	if (auto existing = schemas.Lookup(schema_name)) {
-		// Report if the namespace was proven non-existent by a prior table load (deferred validation).
-		if (existing->NamespaceNotFound()) {
-			if (if_not_found == OnEntryNotFound::RETURN_NULL) {
-				return nullptr;
-			}
-			throw CatalogException("Schema '%s' does not exist", schema_name);
-		}
+	auto existing = schemas.Lookup(schema_name);
+	if (existing && !existing->NamespaceNotFound()) {
 		return existing.get();
+	}
+
+	// Report if the namespace was proven non-existent by a prior table load (deferred validation) or listing.
+	if (existing || schemas.Listed()) {
+		if (if_not_found == OnEntryNotFound::RETURN_NULL) {
+			return nullptr;
+		}
+		throw CatalogException("Schema '%s' does not exist", schema_name);
 	}
 
 	// Optimistically create schema entry without verifying namespace existence (deferred validation).

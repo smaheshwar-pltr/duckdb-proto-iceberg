@@ -3,7 +3,7 @@
 #include <set>
 #include <string>
 
-// N.B. Though our extension is C++23, we use std::string instead of std::string_view
+// Though our extension is C++23, we use std::string instead of std::string_view
 // for constants to interface more easily with DuckDB APIs that expect std::string.
 namespace duckdb::constants {
 

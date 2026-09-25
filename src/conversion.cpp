@@ -222,10 +222,11 @@ std::shared_ptr<iceberg::Expression> TranslateConjunctionOr(const ConjunctionOrF
 
 } // namespace
 
-// N.B. Widened results and sub-results must not be negated to preserve the invariant. AlwaysTrue negates to
+// Widened results and sub-results must not be negated to preserve the invariant. AlwaysTrue negates to
 // AlwaysFalse, which would silently exclude all files. DuckDB normalizes negation before creating TableFilters (e.g.
 // NOT x>5 becomes x<=5), so wrapped NOT filters do not arise.
-// N.B. We create filter expressions using column names from ProtoIcebergScanInfo::schema. iceberg-cpp's Binder::Bind()
+//
+// We create filter expressions using column names from ProtoIcebergScanInfo::schema. iceberg-cpp's Binder::Bind()
 // resolves these names against its own derived schema to obtain field IDs. The two schemas must be the same; such is
 // the precondition of ProtoIcebergScanInfo::schema for this very reason.
 std::shared_ptr<iceberg::Expression> TranslateOrWidenFilters(const TableFilterSet &filters,

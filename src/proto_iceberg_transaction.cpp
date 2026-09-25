@@ -50,13 +50,24 @@ void ProtoIcebergTransaction::LockedSchemas::MarkListed() {
 	guard_->listed = true;
 }
 
-void ProtoIcebergTransaction::TrackSecret(std::string_view secret_name) {
-	created_secrets_.Lock()->insert(string(secret_name));
+namespace {
+
+std::pair<std::vector<string>, string> TableKey(const iceberg::TableIdentifier &table) {
+	return {table.ns.levels, table.name};
 }
 
-bool ProtoIcebergTransaction::HasTrackedSecret(std::string_view secret_name) const {
-	auto secrets = created_secrets_.Lock();
-	return secrets->contains(string(secret_name));
+} // namespace
+
+void ProtoIcebergTransaction::TrackSecret(const iceberg::TableIdentifier &table) {
+	secret_tables_.Lock()->insert(TableKey(table));
+}
+
+bool ProtoIcebergTransaction::HasTrackedSecret(const iceberg::TableIdentifier &table) const {
+	return secret_tables_.Lock()->contains(TableKey(table));
+}
+
+idx_t ProtoIcebergTransaction::TrackedSecretCount() const {
+	return secret_tables_.Lock()->size();
 }
 
 ProtoIcebergTransaction &ProtoIcebergTransaction::Get(ClientContext &context, AttachedDatabase &db) {

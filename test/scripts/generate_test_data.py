@@ -596,6 +596,24 @@ def create_testing_namespace(catalog):
     print(f"  Inserted {len(data)} rows into 'testing.sample'")
 
 
+def create_underscore_split_tables(catalog):
+    """Tables 'default.split_name' and 'default_split.name', whose namespace and name join to the same string."""
+    try:
+        catalog.create_namespace("default_split")
+        print("Created namespace 'default_split'")
+    except Exception:
+        print("Namespace 'default_split' already exists")
+
+    schema = Schema(
+        NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
+    )
+
+    for table_id, ids in [("default.split_name", [1]), ("default_split.name", [1, 2])]:
+        table = drop_and_create(catalog, table_id, schema)
+        table.append(pa.table({"id": pa.array(ids, type=pa.int32())}))
+        print(f"  Inserted {len(ids)} rows into '{table_id}'")
+
+
 def create_nested_types_table(catalog):
     """Nested types: STRUCT, LIST, MAP columns."""
     schema = Schema(
@@ -778,6 +796,7 @@ def main():
     create_pinned_schema_table(catalog)
     create_rollback_table(catalog)
     create_testing_namespace(catalog)
+    create_underscore_split_tables(catalog)
     create_nested_types_table(catalog)
     create_add_column_table(catalog)
     create_drop_column_table(catalog)

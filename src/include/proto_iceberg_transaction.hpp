@@ -8,6 +8,8 @@
 #include "duckdb/common/reference_map.hpp"
 #include "duckdb/main/client_context_state.hpp"
 
+#include "iceberg/table_identifier.h"
+
 #include <map>
 #include <ranges>
 #include <set>
@@ -70,11 +72,14 @@ public:
 	/// Acquires the schema store lock. Operations are performed through the returned handle.
 	LockedSchemas LockSchemas();
 
-	/// Tracks a temporary DuckDB secret created for vended credentials.
-	void TrackSecret(std::string_view secret_name);
+	/// Tracks that a temporary DuckDB secret was created for a table's vended credentials.
+	void TrackSecret(const iceberg::TableIdentifier &table);
 
-	/// Returns whether a secret with this name is already tracked.
-	bool HasTrackedSecret(std::string_view secret_name) const;
+	/// Returns whether a secret was already created for this table.
+	bool HasTrackedSecret(const iceberg::TableIdentifier &table) const;
+
+	/// Returns the number of secrets created in this transaction.
+	idx_t TrackedSecretCount() const;
 
 	/// Gets the ProtoIcebergTransaction from a ClientContext.
 	static ProtoIcebergTransaction &Get(ClientContext &context, AttachedDatabase &db);
@@ -82,7 +87,8 @@ public:
 private:
 	int64_t start_timestamp_ms_;
 	Mutex<LockedSchemas::SchemaState> schema_state_;
-	Mutex<std::set<string>> created_secrets_;
+	/// Tables, by namespace levels and name, with a scoped secret.
+	Mutex<std::set<std::pair<std::vector<string>, string>>> secret_tables_;
 };
 
 class ProtoIcebergTransactionManager : public TransactionManager {

@@ -38,15 +38,13 @@ CreateSecretInput MakeBaseS3SecretInput() {
 	        .persist_type = SecretPersistType::TEMPORARY};
 }
 
-string GenerateScopedSecretName(const string &catalog_name, const iceberg::TableIdentifier &table_id,
-                                transaction_t txn_id) {
-	// Single-level namespaces only (multi-level are skipped at listing), so levels[0] is unambiguous.
-	D_ASSERT(!table_id.ns.levels.empty());
-	return StringUtil::Format("__proto_ic_%s_%s_%s_%s", catalog_name, table_id.ns.levels[0], table_id.name,
-	                          std::to_string(txn_id));
+string GenerateScopedSecretName(const string &catalog_name, transaction_t txn_id, idx_t index) {
+	// N.B. Attached catalog names are unique within a transaction and the trailing numbers contain no separator, so
+	// names are unique per catalog, transaction and index.
+	return StringUtil::Format("__proto_ic_%s_%s_%s", catalog_name, std::to_string(txn_id), std::to_string(index));
 }
 
-CreateSecretInput BuildScopedS3Secret(const string &catalog_name, const iceberg::Table &table, transaction_t txn_id) {
+CreateSecretInput BuildScopedS3Secret(const iceberg::Table &table, string secret_name) {
 	const auto &io = table.io();
 	if (!io) {
 		throw IOException("Table '%s' has no FileIO; cannot vend S3 credentials", table.name().ToString());
@@ -64,7 +62,7 @@ CreateSecretInput BuildScopedS3Secret(const string &catalog_name, const iceberg:
 	}
 
 	auto input = MakeBaseS3SecretInput();
-	input.name = GenerateScopedSecretName(catalog_name, table.name(), txn_id);
+	input.name = std::move(secret_name);
 	input.scope.push_back(std::move(scope_prefix));
 	// Scope to write.data.path too, that may live outside the table's location
 	if (string write_data_path {table.properties().Get(iceberg::TableProperties::kWriteDataLocation)};
@@ -106,18 +104,20 @@ CreateSecretInput BuildScopedS3Secret(const string &catalog_name, const iceberg:
 
 void CreateScopedS3Secret(ClientContext &context, ProtoIcebergTransaction &txn, const string &catalog_name,
                           const std::shared_ptr<iceberg::Table> &table) {
-	auto input = BuildScopedS3Secret(catalog_name, *table, MetaTransaction::Get(context).global_transaction_id);
 	// N.B. We pin the Table object during a transaction; we therefore need not recreate a table's secrets.
 	// TODO: Support credential refresh (in some manner) within a transaction, which would change this.
-	if (txn.HasTrackedSecret(input.name)) {
+	if (txn.HasTrackedSecret(table->name())) {
 		return;
 	}
 
+	auto secret_name = GenerateScopedSecretName(catalog_name, MetaTransaction::Get(context).global_transaction_id,
+	                                            txn.TrackedSecretCount());
+	auto input = BuildScopedS3Secret(*table, std::move(secret_name));
 	if (!SecretManager::Get(context).CreateSecret(context, input)) {
 		throw IOException("Failed to create scoped S3 secret '%s' for table '%s'", input.name,
 		                  table->name().ToString());
 	}
-	txn.TrackSecret(input.name);
+	txn.TrackSecret(table->name());
 	ProtoIcebergSecretCleanup::Get(context).Track(input.name);
 }
 
@@ -189,7 +189,7 @@ TableFunction ProtoIcebergTableEntry::GetScanFunction(ClientContext &context, un
 
 	// httpfs provides the S3 secret type; load it before creating the scoped S3 secret.
 	ExtensionHelper::AutoLoadExtension(DatabaseInstance::GetDatabase(context), kHttpfsExtension);
-	CreateScopedS3Secret(context, txn, ic_catalog.GetCatalogURI(), scan_info_->table);
+	CreateScopedS3Secret(context, txn, ic_catalog.GetName(), scan_info_->table);
 
 	auto iceberg_scan = ConfigureIcebergScan(context, scan_info_);
 	auto [scan, scan_bind_data] = BindIcebergScan(context, std::move(iceberg_scan));

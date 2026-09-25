@@ -118,6 +118,7 @@ void CreateScopedS3Secret(ClientContext &context, ProtoIcebergTransaction &txn, 
 		                  table->name().ToString());
 	}
 	txn.TrackSecret(input.name);
+	ProtoIcebergSecretCleanup::Get(context).Track(input.name);
 }
 
 TableFunction GetParquetScanFunction(ClientContext &context) {

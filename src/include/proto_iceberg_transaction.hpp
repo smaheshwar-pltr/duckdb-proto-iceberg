@@ -6,12 +6,15 @@
 #include "duckdb/transaction/transaction.hpp"
 #include "duckdb/transaction/transaction_manager.hpp"
 #include "duckdb/common/reference_map.hpp"
+#include "duckdb/main/client_context_state.hpp"
 
 #include <map>
 #include <ranges>
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace duckdb {
 
@@ -73,9 +76,6 @@ public:
 	/// Returns whether a secret with this name is already tracked.
 	bool HasTrackedSecret(std::string_view secret_name) const;
 
-	/// Drops all tracked temporary secrets.
-	void DropSecrets(ClientContext &context);
-
 	/// Gets the ProtoIcebergTransaction from a ClientContext.
 	static ProtoIcebergTransaction &Get(ClientContext &context, AttachedDatabase &db);
 
@@ -96,11 +96,29 @@ public:
 	void Checkpoint(ClientContext &context, bool force) override;
 
 private:
-	/// Drops a transaction's scoped secrets via a nested Connection.
-	void DropSecretsInNestedTxn(ProtoIcebergTransaction &txn) const;
-
 	ProtoIcebergCatalog &catalog_;
 	Mutex<reference_map_t<Transaction, unique_ptr<ProtoIcebergTransaction>>> transactions_;
+};
+
+/// Drops the temporary secrets a connection creates for vended credentials once its transaction ends.
+/// N.B. Secrets are written in the connection's system catalog transaction, which DuckDB may commit after the Iceberg
+/// catalog's, so they can only reliably be dropped once the whole transaction has committed or rolled back.
+class ProtoIcebergSecretCleanup : public ClientContextState {
+public:
+	/// Gets the connection's cleanup state, registering it on first use.
+	static ProtoIcebergSecretCleanup &Get(ClientContext &context);
+
+	/// Schedules a secret to be dropped when the current transaction ends.
+	void Track(std::string_view secret_name);
+
+	void TransactionCommit(MetaTransaction &transaction, ClientContext &context) override;
+	void TransactionRollback(MetaTransaction &transaction, ClientContext &context) override;
+
+private:
+	/// Drops the tracked secrets via a nested Connection, as the ended transaction can no longer be used.
+	void DropSecrets(ClientContext &context);
+
+	Mutex<std::vector<string>> secrets_;
 };
 
 } // namespace duckdb

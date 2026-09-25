@@ -4,7 +4,8 @@
 #include "proto_iceberg_extension.hpp"
 #include "proto_iceberg_catalog.hpp"
 #include "proto_iceberg_transaction.hpp"
-#include "duckdb.hpp"
+#include "duckdb/main/config.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/storage/storage_extension.hpp"
 #include "duckdb/main/extension_helper.hpp"
@@ -15,12 +16,12 @@
 namespace duckdb {
 namespace {
 
+using constants::kConfigProvider;
 using constants::kEndpoint;
 using constants::kIcebergSecretType;
 using constants::kRedactedSecrets;
 using constants::kToken;
 
-const string kConfigProvider = "config";
 const string kIcebergExtensionName = "proto_iceberg";
 const string kStorageExtensionName = "iceberg";
 
@@ -70,8 +71,6 @@ void RegisterIcebergSecretFunction(ExtensionLoader &loader) {
 	loader.RegisterFunction(secret_function);
 }
 
-} // namespace
-
 void LoadInternal(ExtensionLoader &loader) {
 	auto &instance = loader.GetDatabaseInstance();
 
@@ -83,6 +82,8 @@ void LoadInternal(ExtensionLoader &loader) {
 	auto &config = DBConfig::GetConfig(instance);
 	StorageExtension::Register(config, kStorageExtensionName, make_shared_ptr<ProtoIcebergStorageExtension>());
 }
+
+} // namespace
 
 void ProtoIcebergExtension::Load(ExtensionLoader &loader) {
 	LoadInternal(loader);

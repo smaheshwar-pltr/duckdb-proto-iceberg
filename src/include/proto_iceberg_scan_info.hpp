@@ -30,6 +30,8 @@ struct ProtoIcebergScanInfo : TableFunctionInfo {
 	    : table(std::move(table_p)), mode(std::move(mode_p)), schema(std::move(schema_p)) {
 	}
 
+	/// Shared by every scan of the table in a transaction, and scans may plan files concurrently. Only read from it:
+	/// refreshing or committing through it would race with them.
 	std::shared_ptr<iceberg::Table> table;
 	ScanMode mode;
 

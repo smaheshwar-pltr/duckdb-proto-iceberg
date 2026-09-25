@@ -1,5 +1,7 @@
 #pragma once
 
+#include "mutex.hpp"
+
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
 #include "duckdb/parser/parsed_data/attach_info.hpp"
@@ -28,8 +30,10 @@ public:
 		return catalog_uri_;
 	}
 
-	iceberg::rest::RestCatalog &GetRestCatalog() const {
-		return *rest_catalog_;
+	/// Acquires exclusive use of the REST catalog. Every call into it, including through a loaded iceberg::Table (e.g.
+	/// Table::Refresh()), must hold the returned guard, and only for the duration of that call.
+	Mutex<std::shared_ptr<iceberg::rest::RestCatalog>>::Guard LockRestCatalog() {
+		return rest_catalog_.Lock();
 	}
 
 	/// Registers a finalizer that cleans up Arrow's S3 subsystem. Must be called after Arrow S3 has been initialized.
@@ -87,7 +91,9 @@ private:
 
 	string catalog_uri_;
 	string default_schema_;
-	std::shared_ptr<iceberg::rest::RestCatalog> rest_catalog_;
+	// TODO: Drop the lock once iceberg-cpp documents RestCatalog as thread-safe. It currently isn't: its HttpClient
+	//   shares one libcurl connection cache across all requests.
+	Mutex<std::shared_ptr<iceberg::rest::RestCatalog>> rest_catalog_;
 };
 
 } // namespace duckdb

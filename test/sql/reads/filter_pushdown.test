@@ -168,3 +168,36 @@ SELECT count(*) FROM (SELECT DISTINCT 1 FROM duckdb_logs()
   WHERE message LIKE 'proto_iceberg: planned 6 data file(s) for ''default.multi_partition''%');
 ----
 1
+
+# Filters that can't prune data files must not re-plan the scan, which would re-read manifests to plan the same
+# files. Dynamic Top-N filters and filters on types we can't translate (here, a join on a UUID key) widen to
+# AlwaysTrue, so each scan plans once.
+
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT id FROM lake.default.multi_partition ORDER BY id LIMIT 1;
+----
+1
+
+query I
+SELECT count(*) FROM duckdb_logs() WHERE message LIKE 'proto_iceberg: planned % for ''default.multi_partition''%';
+----
+1
+
+statement ok
+CREATE TEMP TABLE uuid_keys AS SELECT '550e8400-e29b-41d4-a716-446655440000'::UUID AS u;
+
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT t.id FROM lake.default.all_types t JOIN uuid_keys k ON t.col_uuid = k.u;
+----
+1
+
+query I
+SELECT count(*) FROM duckdb_logs() WHERE message LIKE 'proto_iceberg: planned % for ''default.all_types''%';
+----
+1

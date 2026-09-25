@@ -53,6 +53,12 @@ std::optional<TableFilterSet> BuildTableFilterSet(ClientContext &context, const 
 	return filter_set.filters.empty() ? std::nullopt : std::optional(std::move(filter_set));
 }
 
+/// Whether adding the filters to scan planning can prune data files. Untranslatable filters (e.g. dynamic Top-N
+/// filters) widen to AlwaysTrue, so re-planning with them would re-read manifests only to plan the same files.
+bool CanPrunePlanning(const TableFilterSet &filters, const iceberg::Schema &schema) {
+	return conversion::TranslateOrWidenFilters(filters, schema)->op() != iceberg::Expression::Operation::kTrue;
+}
+
 } // namespace
 
 ProtoIcebergMultiFileList::ProtoIcebergMultiFileList(shared_ptr<ProtoIcebergScanInfo> scan_info_p,
@@ -163,6 +169,10 @@ ProtoIcebergMultiFileList::ComplexFilterPushdown(ClientContext &, const MultiFil
 	if (!filter_set) {
 		return nullptr;
 	}
+	if (!CanPrunePlanning(*filter_set, *scan_info_->schema)) {
+		DUCKDB_LOG_DEBUG(context_, "proto_iceberg: ComplexFilterPushdown skipped (filters cannot prune data files)");
+		return nullptr;
+	}
 
 	DUCKDB_LOG_DEBUG(context_, "proto_iceberg: ComplexFilterPushdown applied %zu filter(s)",
 	                 filter_set->filters.size());
@@ -196,6 +206,10 @@ ProtoIcebergMultiFileList::DynamicFilterPushdown(ClientContext &, const MultiFil
 
 	if (new_filters.filters.empty()) {
 		DUCKDB_LOG_DEBUG(context_, "proto_iceberg: DynamicFilterPushdown skipped (all filters already pushed)");
+		return nullptr;
+	}
+	if (!CanPrunePlanning(new_filters, *scan_info_->schema)) {
+		DUCKDB_LOG_DEBUG(context_, "proto_iceberg: DynamicFilterPushdown skipped (filters cannot prune data files)");
 		return nullptr;
 	}
 	DUCKDB_LOG_DEBUG(context_, "proto_iceberg: DynamicFilterPushdown applied %zu new filter(s)",

@@ -1,13 +1,14 @@
 #include "constants.hpp"
 #include "s3_conversion.hpp"
 #include "proto_iceberg_table_entry.hpp"
-#include "proto_iceberg_catalog.hpp"
-#include "proto_iceberg_transaction.hpp"
 #include "proto_iceberg_scan_info.hpp"
 #include "proto_iceberg_multi_file_reader.hpp"
 
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/extension_helper.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/main/client_context_state.hpp"
+#include "duckdb/main/connection.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
@@ -16,10 +17,13 @@
 #include "duckdb/main/secret/secret.hpp"
 #include "duckdb/transaction/meta_transaction.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/logging/logger.hpp"
 
 #include "iceberg/table.h"
 #include "iceberg/table_properties.h"
 #include "iceberg/file_io.h"
+
+#include <utility>
 
 namespace duckdb {
 namespace {
@@ -31,6 +35,7 @@ const string kParquetScan = "parquet_scan";
 const string kTableScanName = "proto_iceberg_table_scan";
 const string kParquetExtension = "parquet";
 const string kHttpfsExtension = "httpfs";
+const string kScopedSecretsStateKey = "proto_iceberg_scoped_secrets";
 
 CreateSecretInput MakeBaseS3SecretInput() {
 	return {.type = kS3SecretType,
@@ -40,13 +45,7 @@ CreateSecretInput MakeBaseS3SecretInput() {
 	        .persist_type = SecretPersistType::TEMPORARY};
 }
 
-string GenerateScopedSecretName(const string &catalog_name, transaction_t txn_id, idx_t index) {
-	// N.B. Attached catalog names are unique within a transaction and the trailing numbers contain no separator, so
-	// names are unique per catalog, transaction and index.
-	return StringUtil::Format("__proto_ic_%s_%s_%s", catalog_name, std::to_string(txn_id), std::to_string(index));
-}
-
-CreateSecretInput BuildScopedS3Secret(const iceberg::Table &table, string secret_name) {
+CreateSecretInput BuildScopedS3Secret(const iceberg::Table &table) {
 	const auto &io = table.io();
 	if (!io) {
 		throw IOException("Table '%s' has no FileIO; cannot vend S3 credentials", table.name().ToString());
@@ -64,7 +63,6 @@ CreateSecretInput BuildScopedS3Secret(const iceberg::Table &table, string secret
 	}
 
 	auto input = MakeBaseS3SecretInput();
-	input.name = std::move(secret_name);
 	input.scope.push_back(std::move(scope_prefix));
 	// Scope to write.data.path too, that may live outside the table's location
 	if (string write_data_path {table.properties().Get(iceberg::TableProperties::kWriteDataLocation)};
@@ -77,24 +75,65 @@ CreateSecretInput BuildScopedS3Secret(const iceberg::Table &table, string secret
 	return input;
 }
 
-void CreateScopedS3Secret(ClientContext &context, ProtoIcebergTransaction &txn, const string &catalog_name,
-                          const std::shared_ptr<iceberg::Table> &table) {
-	// N.B. We pin the Table object during a transaction; we therefore need not recreate a table's secrets.
-	// TODO: Support credential refresh (in some manner) within a transaction, which would change this.
-	if (txn.HasTrackedSecret(table->name())) {
-		return;
+/// A connection's temporary secrets for vended credentials, which are dropped when its transaction ends.
+///
+/// Secrets are written in the connection's system catalog transaction, which DuckDB may commit after the Iceberg
+/// catalog's, so they can only reliably be dropped once the whole transaction has committed or rolled back.
+class ScopedSecrets : public ClientContextState {
+public:
+	static ScopedSecrets &Get(ClientContext &context) {
+		return *context.registered_state->GetOrCreate<ScopedSecrets>(kScopedSecretsStateKey);
 	}
 
-	auto secret_name = GenerateScopedSecretName(catalog_name, MetaTransaction::Get(context).global_transaction_id,
-	                                            txn.TrackedSecretCount());
-	auto input = BuildScopedS3Secret(*table, std::move(secret_name));
-	if (!SecretManager::Get(context).CreateSecret(context, input)) {
-		throw IOException("Failed to create scoped S3 secret '%s' for table '%s'", input.name,
-		                  table->name().ToString());
+	/// Creates a secret for a table's vended credentials.
+	void Create(ClientContext &context, const string &catalog_name, const iceberg::Table &table) {
+		auto input = BuildScopedS3Secret(table);
+		// The transaction ID and index make the name unique within the database instance.
+		input.name = StringUtil::Format("__proto_ic_%s_%s_%s", catalog_name,
+		                                std::to_string(MetaTransaction::Get(context).global_transaction_id),
+		                                std::to_string(names_.size()));
+		if (!SecretManager::Get(context).CreateSecret(context, input)) {
+			throw IOException("Failed to create scoped S3 secret '%s' for table '%s'", input.name,
+			                  table.name().ToString());
+		}
+		names_.push_back(std::move(input.name));
 	}
-	txn.TrackSecret(table->name());
-	ProtoIcebergSecretCleanup::Get(context).Track(input.name);
-}
+
+	void TransactionCommit(MetaTransaction &, ClientContext &context) override {
+		DropAll(context);
+	}
+
+	void TransactionRollback(MetaTransaction &, ClientContext &context) override {
+		DropAll(context);
+	}
+
+private:
+	/// Drops the secrets through a new connection, as the ended transaction can no longer be used.
+	void DropAll(ClientContext &context) {
+		auto names = std::exchange(names_, {});
+		// Most transactions create no secrets; don't open a connection for them.
+		if (names.empty()) {
+			return;
+		}
+
+		try {
+			Connection con(*context.db);
+			con.BeginTransaction();
+			auto &secret_manager = SecretManager::Get(*con.context);
+			for (const auto &name : names) {
+				secret_manager.DropSecretByName(*con.context, name, OnEntryNotFound::RETURN_NULL,
+				                                SecretPersistType::TEMPORARY);
+			}
+			// Commit, not Rollback: the secret drop is a transactional catalog op, so rolling back would revert it.
+			con.Commit();
+		} catch (std::exception &ex) {
+			// Leaked secrets are TEMPORARY and uniquely named, so they neither persist nor clash with later ones.
+			DUCKDB_LOG_WARNING(context, "proto_iceberg: failed to drop scoped S3 secret(s): %s", ex.what());
+		}
+	}
+
+	vector<string> names_;
+};
 
 TableFunction GetParquetScanFunction(ClientContext &context) {
 	auto &database = DatabaseInstance::GetDatabase(context);
@@ -161,12 +200,14 @@ TableFunction ProtoIcebergTableEntry::GetScanFunction(ClientContext &context, un
 		throw InternalException("Cannot scan Iceberg table '%s' before it is fully loaded", name);
 	}
 
-	auto &ic_catalog = catalog.Cast<ProtoIcebergCatalog>();
-	auto &txn = ProtoIcebergTransaction::Get(context, ic_catalog.GetAttached());
-
 	// httpfs provides the S3 secret type; load it before creating the scoped S3 secret.
 	ExtensionHelper::AutoLoadExtension(DatabaseInstance::GetDatabase(context), kHttpfsExtension);
-	CreateScopedS3Secret(context, txn, ic_catalog.GetName(), scan_info_->table);
+	// The entry lives for one transaction and pins its table, so its scans share one secret.
+	// TODO: Support credential refresh (in some manner) within a transaction, which would change this.
+	if (!has_secret_) {
+		ScopedSecrets::Get(context).Create(context, catalog.GetName(), *scan_info_->table);
+		has_secret_ = true;
+	}
 
 	auto iceberg_scan = ConfigureIcebergScan(context, scan_info_);
 	auto [scan, scan_bind_data] = BindIcebergScan(context, std::move(iceberg_scan));

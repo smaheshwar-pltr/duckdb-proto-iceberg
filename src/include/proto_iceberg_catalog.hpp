@@ -26,10 +26,6 @@ public:
 		return true;
 	}
 
-	const string &GetCatalogURI() const {
-		return catalog_uri_;
-	}
-
 	/// Acquires exclusive use of the REST catalog. Every call into it, including through a loaded iceberg::Table (e.g.
 	/// Table::Refresh()), must hold the returned guard, and only for the duration of that call.
 	Mutex<std::shared_ptr<iceberg::rest::RestCatalog>>::Guard LockRestCatalog() {

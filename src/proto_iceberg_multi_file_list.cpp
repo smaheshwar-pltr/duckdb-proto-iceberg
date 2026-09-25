@@ -20,14 +20,16 @@ namespace {
 
 const string kFileSizeKey = "file_size";
 const string kValidateExternalFileCacheKey = "validate_external_file_cache";
+const string kEtagKey = "etag";
+const string kLastModifiedKey = "last_modified";
 
 OpenFileInfo MakeOpenFileInfo(const iceberg::DataFile &df) {
 	// Iceberg data files are immutable; skip per-file HEAD revalidation.
 	unordered_map<string, Value> options = {
 	    {kFileSizeKey, Value::UBIGINT(static_cast<uint64_t>(df.file_size_in_bytes))},
 	    {kValidateExternalFileCacheKey, Value::BOOLEAN(false)},
-	    {"etag", Value("")},
-	    {"last_modified", Value::TIMESTAMP(timestamp_t(0))},
+	    {kEtagKey, Value("")},
+	    {kLastModifiedKey, Value::TIMESTAMP(timestamp_t(0))},
 	};
 
 	OpenFileInfo info(df.file_path);
@@ -74,8 +76,6 @@ iceberg::Result<ProtoIcebergScanPlan> ProtoIcebergMultiFileList::PlanFilesImpl(c
 	std::shared_ptr<iceberg::Expression> filter {};
 	if (!filters.filters.empty()) {
 		filter = conversion::TranslateOrWidenFilters(filters, *info.schema);
-	}
-	if (filter) {
 		scan_builder->Filter(filter);
 	}
 

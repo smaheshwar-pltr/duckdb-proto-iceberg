@@ -37,10 +37,16 @@ build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 # signature (PARAMETERS, which is unused for out-of-tree extensions).
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
-foreach(target ${EXTENSION_NAME} ${LOADABLE_EXTENSION_NAME})
-    target_include_directories(${target} PRIVATE src/include)
-    # DuckDB links these targets with the plain signature, so no PRIVATE/PUBLIC keyword here.
-    target_link_libraries(${target} iceberg::iceberg_bundle_static iceberg::iceberg_rest_static)
+target_include_directories(${EXTENSION_NAME} PRIVATE src/include)
+target_include_directories(${LOADABLE_EXTENSION_NAME} PRIVATE src/include)
+
+# iceberg-cpp is a private dependency: DuckDB's executables that link the static extension need its archives, but
+# not its include paths or its C++ standard. DuckDB links the extension targets with the plain
+# target_link_libraries() signature, which can't be combined with PRIVATE, so set the properties PRIVATE would.
+set(ICEBERG_LIBRARIES iceberg::iceberg_bundle_static iceberg::iceberg_rest_static)
+set_property(TARGET ${EXTENSION_NAME} ${LOADABLE_EXTENSION_NAME} APPEND PROPERTY LINK_LIBRARIES ${ICEBERG_LIBRARIES})
+foreach(library ${ICEBERG_LIBRARIES})
+    set_property(TARGET ${EXTENSION_NAME} APPEND PROPERTY INTERFACE_LINK_LIBRARIES "$<LINK_ONLY:${library}>")
 endforeach()
 
 # ---------------------------------------------------------------------------
@@ -59,7 +65,7 @@ add_executable(proto_iceberg_unittest EXCLUDE_FROM_ALL
 target_include_directories(proto_iceberg_unittest PRIVATE
     src/include
     "${CMAKE_SOURCE_DIR}/third_party/catch")
-target_link_libraries(proto_iceberg_unittest PRIVATE ${EXTENSION_NAME} duckdb)
+target_link_libraries(proto_iceberg_unittest PRIVATE ${EXTENSION_NAME} ${ICEBERG_LIBRARIES} duckdb)
 
 # ---------------------------------------------------------------------------
 # Install

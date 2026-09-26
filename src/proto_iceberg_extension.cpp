@@ -13,6 +13,8 @@
 #include "iceberg/arrow/arrow_register.h"
 #include "iceberg/avro/avro_register.h"
 
+#include <cstdlib>
+
 namespace duckdb {
 namespace {
 
@@ -53,6 +55,22 @@ void RegisterIcebergFileIO() {
 	iceberg::avro::RegisterAll();
 }
 
+/// Turns off the AWS SDK's logging unless the user configured it, before iceberg-cpp initializes Arrow's S3 support.
+///
+/// When Arrow finalizes S3 at exit, the AWS CRT can still be shutting down an event loop on another thread, which
+/// logs through the SDK's logger after the SDK has torn it down and crashes. With logging off the SDK installs no
+/// logger. Arrow reads ARROW_S3_LOG_LEVEL when S3 is first initialized.
+void DisableAwsSdkLogging() {
+	static constexpr const char *kArrowS3LogLevel = "ARROW_S3_LOG_LEVEL";
+#ifdef _WIN32
+	if (!std::getenv(kArrowS3LogLevel)) {
+		_putenv_s(kArrowS3LogLevel, "off");
+	}
+#else
+	setenv(kArrowS3LogLevel, "off", /*overwrite=*/0);
+#endif
+}
+
 void RegisterIcebergSecretType(ExtensionLoader &loader) {
 	SecretType iceberg_secret_type;
 	iceberg_secret_type.name = kIcebergSecretType;
@@ -74,6 +92,7 @@ void RegisterIcebergSecretFunction(ExtensionLoader &loader) {
 void LoadInternal(ExtensionLoader &loader) {
 	auto &instance = loader.GetDatabaseInstance();
 
+	DisableAwsSdkLogging();
 	RegisterIcebergFileIO();
 
 	RegisterIcebergSecretType(loader);

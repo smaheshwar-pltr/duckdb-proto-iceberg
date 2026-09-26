@@ -67,7 +67,7 @@ CreateSecretInput BuildScopedS3Secret(const string &catalog_name, const iceberg:
 
 	auto input = MakeBaseS3SecretInput();
 	input.name = GenerateScopedSecretName(catalog_name, table.name(), txn_id);
-	input.scope.push_back(std::move(scope_prefix));
+	input.scope.push_back(scope_prefix);
 	// Scope to write.data.path too, that may live outside the table's location
 	if (string write_data_path {table.properties().Get(iceberg::TableProperties::kWriteDataLocation)};
 	    !write_data_path.empty()) {
@@ -80,7 +80,7 @@ CreateSecretInput BuildScopedS3Secret(const string &catalog_name, const iceberg:
 	}
 	// Match on the slash-terminated table location, so that a credential for "<location>/" applies.
 	input.options = conversion::ConvertIcebergPropertiesToS3Secret(
-	    conversion::MergeStorageCredential(io->properties(), credentials, input.scope.front()));
+	    conversion::MergeStorageCredential(io->properties(), credentials, scope_prefix));
 	return input;
 }
 

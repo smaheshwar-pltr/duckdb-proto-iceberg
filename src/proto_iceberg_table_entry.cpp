@@ -78,8 +78,9 @@ CreateSecretInput BuildScopedS3Secret(const string &catalog_name, const iceberg:
 	if (const auto *credentialed = io->AsSupportsStorageCredentials()) {
 		credentials = credentialed->credentials();
 	}
+	// Match on the slash-terminated table location, so that a credential for "<location>/" applies.
 	input.options = conversion::ConvertIcebergPropertiesToS3Secret(
-	    conversion::MergeStorageCredential(io->properties(), credentials, table.location()));
+	    conversion::MergeStorageCredential(io->properties(), credentials, input.scope.front()));
 	return input;
 }
 

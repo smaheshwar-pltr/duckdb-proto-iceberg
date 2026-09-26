@@ -138,4 +138,21 @@ ConvertIcebergPropertiesToS3Secret(const std::unordered_map<std::string, std::st
 	return options;
 }
 
+std::unordered_map<std::string, std::string>
+MergeStorageCredential(std::unordered_map<std::string, std::string> properties,
+                       std::span<const iceberg::StorageCredential> credentials, std::string_view location) {
+	const iceberg::StorageCredential *best = nullptr;
+	for (const auto &credential : credentials) {
+		if (location.starts_with(credential.prefix) && (!best || credential.prefix.size() > best->prefix.size())) {
+			best = &credential;
+		}
+	}
+	if (best) {
+		for (const auto &[key, value] : best->config) {
+			properties.insert_or_assign(key, value);
+		}
+	}
+	return properties;
+}
+
 } // namespace duckdb::conversion

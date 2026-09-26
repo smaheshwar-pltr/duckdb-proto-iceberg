@@ -74,8 +74,12 @@ CreateSecretInput BuildScopedS3Secret(const string &catalog_name, const iceberg:
 		input.scope.push_back(scope_with_slash(std::move(write_data_path)));
 	}
 
-	// TODO: Respect storage credentials REST field, not just the credentials in IO properties
-	input.options = conversion::ConvertIcebergPropertiesToS3Secret(io->properties());
+	std::span<const iceberg::StorageCredential> credentials;
+	if (const auto *credentialed = io->AsSupportsStorageCredentials()) {
+		credentials = credentialed->credentials();
+	}
+	input.options = conversion::ConvertIcebergPropertiesToS3Secret(
+	    conversion::MergeStorageCredential(io->properties(), credentials, table.location()));
 	return input;
 }
 

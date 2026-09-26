@@ -11,6 +11,12 @@ project(${TARGET_NAME})
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# iceberg-cpp formats floating-point values with std::format, which Apple's libc++ only provides from
+# macOS 13.3. DuckDB's release builds target 11.0, so raise the target for this extension.
+if(APPLE AND CMAKE_OSX_DEPLOYMENT_TARGET AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS 13.3)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET 13.3)
+endif()
+
 include(cmake/duckdb_cxx23_patch.cmake)
 include(cmake/iceberg_cpp.cmake)
 

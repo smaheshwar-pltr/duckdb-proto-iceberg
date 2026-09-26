@@ -18,7 +18,7 @@ fi
 cleanup() {
     local status=$?
     if [[ ${status} -ne 0 ]]; then
-        "${COMPOSE[@]}" logs
+        "${COMPOSE[@]}" logs || true
     fi
     "${COMPOSE[@]}" down -v
 }

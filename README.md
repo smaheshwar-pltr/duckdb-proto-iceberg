@@ -66,7 +66,8 @@ SELECT * FROM my_catalog.my_namespace.my_table LIMIT 5;
 make unittest_release  # or: make unittest_debug
 
 # Integration tests, against a REST catalog and object store in Docker
-python3 -m pip install -r test/scripts/requirements.txt
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r test/scripts/requirements.txt
 make integration_test_release  # or: make integration_test_debug
 ```
 

@@ -2,7 +2,7 @@
 
 ## DuckDB
 
-The extension targets a DuckDB release, which is pinned in several places that must move together:
+The extension targets a DuckDB release, which is pinned in several places that must move together. Check out submodule commits explicitly rather than using `make update` or `make pull`, which move every submodule to the tip of its tracked branch.
 
 - The `duckdb` submodule: check out the release tag, and set its `branch` in `.gitmodules` to the release branch.
 - The `extension-ci-tools` submodule: check out the branch named after the release (e.g. `v1.5.1`), and set its `branch` in `.gitmodules` to match.

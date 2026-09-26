@@ -4,5 +4,6 @@ cmake-build-debug
 duckdb_unittest_tempdir/
 .DS_Store
 __pycache__/
+.venv/
 .vscode
 .cache/

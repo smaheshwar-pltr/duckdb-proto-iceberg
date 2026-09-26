@@ -11,8 +11,7 @@
 namespace duckdb {
 
 ProtoIcebergCatalog::ProtoIcebergCatalog(AttachedDatabase &db_p, string catalog_uri,
-                                         std::shared_ptr<iceberg::rest::RestCatalog> rest_catalog,
-                                         string default_schema)
+                                         std::shared_ptr<iceberg::Catalog> rest_catalog, string default_schema)
     : Catalog(db_p), catalog_uri_(std::move(catalog_uri)), default_schema_(std::move(default_schema)),
       rest_catalog_(std::in_place, std::move(rest_catalog)) {
 }

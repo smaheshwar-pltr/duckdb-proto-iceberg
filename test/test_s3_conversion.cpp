@@ -4,6 +4,7 @@
 #include <map>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 using namespace duckdb;
 using namespace duckdb::conversion;
@@ -48,7 +49,7 @@ TEST_CASE("secret to properties: plain keys pass through", "[s3_conversion]") {
 	                                                          {"secret", Value("shh")},
 	                                                          {"session_token", Value("tok")},
 	                                                          {"region", Value("eu-west-1")}})) ==
-	        "s3.access-key-id=AKIA, s3.region=eu-west-1, s3.secret-access-key=shh, s3.session-token=tok");
+	        "client.region=eu-west-1, s3.access-key-id=AKIA, s3.secret-access-key=shh, s3.session-token=tok");
 }
 
 TEST_CASE("secret to properties: empty, null and unrelated keys are omitted", "[s3_conversion]") {
@@ -89,7 +90,7 @@ TEST_CASE("properties to secret: plain keys pass through", "[s3_conversion]") {
 	REQUIRE(Render(ConvertIcebergPropertiesToS3Secret({{"s3.access-key-id", "AKIA"},
 	                                                   {"s3.secret-access-key", "shh"},
 	                                                   {"s3.session-token", "tok"},
-	                                                   {"s3.region", "eu-west-1"}})) ==
+	                                                   {"client.region", "eu-west-1"}})) ==
 	        "key_id='AKIA', region='eu-west-1', secret='shh', session_token='tok'");
 }
 
@@ -97,12 +98,14 @@ TEST_CASE("properties to secret: empty and unrelated properties are omitted", "[
 	REQUIRE(Render(ConvertIcebergPropertiesToS3Secret({{"s3.access-key-id", ""},
 	                                                   {"s3.endpoint", ""},
 	                                                   {"s3.connect-timeout-ms", "1000"},
-	                                                   {"client.region", "us-east-1"}})) == "");
+	                                                   {"s3.region", "us-east-1"}})) == "");
 }
 
-TEST_CASE("properties to secret: non-boolean path-style access and SSL enabled are ignored", "[s3_conversion]") {
+TEST_CASE("properties to secret: booleans are true only for true in any case", "[s3_conversion]") {
 	REQUIRE(Render(ConvertIcebergPropertiesToS3Secret(
-	            {{"s3.path-style-access", "True"}, {"s3.ssl.enabled", "FALSE"}})) == "");
+	            {{"s3.path-style-access", "True"}, {"s3.ssl.enabled", "TRUE"}})) == "url_style='path', use_ssl=true");
+	REQUIRE(Render(ConvertIcebergPropertiesToS3Secret({{"s3.path-style-access", "yes"}, {"s3.ssl.enabled", ""}})) ==
+	        "url_style='vhost', use_ssl=false");
 }
 
 TEST_CASE("properties to secret: path-style access maps to URL style", "[s3_conversion]") {
@@ -125,13 +128,13 @@ TEST_CASE("properties to secret: https endpoint drops the scheme and enables SSL
 	        "endpoint='s3.eu-west-1.amazonaws.com', use_ssl=true");
 }
 
-TEST_CASE("properties to secret: endpoint scheme takes precedence over SSL enabled", "[s3_conversion]") {
+TEST_CASE("properties to secret: SSL enabled takes precedence over the endpoint scheme", "[s3_conversion]") {
 	REQUIRE(Render(ConvertIcebergPropertiesToS3Secret(
 	            {{"s3.endpoint", "http://minio:9000"}, {"s3.ssl.enabled", "true"}})) ==
-	        "endpoint='minio:9000', use_ssl=false");
+	        "endpoint='minio:9000', use_ssl=true");
 	REQUIRE(
 	    Render(ConvertIcebergPropertiesToS3Secret({{"s3.endpoint", "https://storage"}, {"s3.ssl.enabled", "false"}})) ==
-	    "endpoint='storage', use_ssl=true");
+	    "endpoint='storage', use_ssl=false");
 }
 
 TEST_CASE("properties to secret: scheme-less endpoint takes SSL from SSL enabled", "[s3_conversion]") {
@@ -169,4 +172,50 @@ TEST_CASE("secret round-trips through iceberg-cpp properties", "[s3_conversion]"
 	               {"url_style", Value("path")},
 	               {"use_ssl", Value::BOOLEAN(false)}};
 	REQUIRE(Render(ConvertIcebergPropertiesToS3Secret(ConvertS3SecretToIcebergProperties(secret))) == Render(secret));
+}
+
+TEST_CASE("storage credential: without credentials the properties are unchanged", "[s3_conversion]") {
+	REQUIRE(Render(MergeStorageCredential({{"s3.access-key-id", "AKIA"}}, {}, "s3://bucket/table/")) ==
+	        "s3.access-key-id=AKIA");
+}
+
+TEST_CASE("storage credential: the longest matching prefix overrides the properties", "[s3_conversion]") {
+	std::vector<iceberg::StorageCredential> credentials = {
+	    {.prefix = "s3://bucket/", .config = {{"s3.access-key-id", "BUCKET"}, {"s3.session-token", "bucket-token"}}},
+	    {.prefix = "s3://bucket/table", .config = {{"s3.access-key-id", "TABLE"}}},
+	    {.prefix = "s3://other/", .config = {{"s3.access-key-id", "OTHER"}}},
+	};
+	REQUIRE(Render(MergeStorageCredential({{"s3.access-key-id", "CATALOG"}, {"client.region", "eu-west-1"}},
+	                                      credentials, "s3://bucket/table/")) ==
+	        "client.region=eu-west-1, s3.access-key-id=TABLE");
+}
+
+TEST_CASE("storage credential: credentials for other locations are ignored", "[s3_conversion]") {
+	std::vector<iceberg::StorageCredential> credentials = {
+	    {.prefix = "s3://other/", .config = {{"s3.access-key-id", "OTHER"}}},
+	};
+	REQUIRE(Render(MergeStorageCredential({{"s3.access-key-id", "CATALOG"}}, credentials, "s3://bucket/table/")) ==
+	        "s3.access-key-id=CATALOG");
+}
+
+TEST_CASE("storage credential: a prefix ending in a slash matches the table location", "[s3_conversion]") {
+	std::vector<iceberg::StorageCredential> credentials = {
+	    {.prefix = "s3://bucket/table/", .config = {{"s3.access-key-id", "TABLE"}}},
+	};
+	REQUIRE(Render(MergeStorageCredential({}, credentials, "s3://bucket/table/")) == "s3.access-key-id=TABLE");
+}
+
+TEST_CASE("storage credential: S3 scheme aliases compare equal", "[s3_conversion]") {
+	std::vector<iceberg::StorageCredential> credentials = {
+	    {.prefix = "s3a://bucket/", .config = {{"s3.access-key-id", "BUCKET"}}},
+	};
+	REQUIRE(Render(MergeStorageCredential({}, credentials, "S3://bucket/table/")) == "s3.access-key-id=BUCKET");
+}
+
+TEST_CASE("storage credential: non-S3 prefixes are skipped", "[s3_conversion]") {
+	std::vector<iceberg::StorageCredential> credentials = {
+	    {.prefix = "gs://bucket/", .config = {{"s3.access-key-id", "GCS"}}},
+	    {.prefix = "s3", .config = {{"s3.access-key-id", "S3"}}},
+	};
+	REQUIRE(Render(MergeStorageCredential({}, credentials, "s3://bucket/table/")) == "s3.access-key-id=S3");
 }

@@ -10,4 +10,4 @@
 [submodule "third_party/iceberg-cpp"]
 	path = third_party/iceberg-cpp
 	url = https://github.com/smaheshwar-pltr/iceberg-cpp.git
-	branch = duckdb-iceberg
+	branch = duckdb-proto-iceberg

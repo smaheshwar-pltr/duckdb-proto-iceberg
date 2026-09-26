@@ -31,7 +31,7 @@ constexpr std::array<PlainPropertyMapping, 4> kPlainPropertyMappings = {{
     {"key_id", S3Properties::kAccessKeyId},
     {"secret", S3Properties::kSecretAccessKey},
     {"session_token", S3Properties::kSessionToken},
-    {"region", S3Properties::kRegion},
+    {"region", S3Properties::kClientRegion},
 }};
 
 /// Parses an iceberg-cpp boolean property, which is exactly "true" or "false".

@@ -9,6 +9,7 @@
 #include "duckdb/main/secret/secret.hpp"
 
 #include "iceberg/catalog/rest/catalog_properties.h"
+#include "iceberg/catalog/rest/rest_catalog.h"
 
 #include <unordered_map>
 
@@ -136,8 +137,10 @@ unique_ptr<Catalog> ProtoIcebergCatalog::Attach(optional_ptr<StorageExtensionInf
 	}
 
 	auto config = iceberg::rest::RestCatalogProperties::FromMap(catalog_props);
-	auto rest_catalog = UnwrapOrThrow(iceberg::rest::RestCatalog::Make(config),
-	                                  "Failed to create Iceberg REST catalog at %s", params.uri);
+	auto session_catalog = UnwrapOrThrow(iceberg::rest::RestCatalog::Make(config),
+	                                     "Failed to create Iceberg REST catalog at %s", params.uri);
+	auto rest_catalog =
+	    UnwrapOrThrow(session_catalog->AsCatalog(), "Failed to create Iceberg REST catalog at %s", params.uri);
 
 	auto catalog = make_uniq<ProtoIcebergCatalog>(db, std::move(params.uri), std::move(rest_catalog),
 	                                              std::move(params.default_schema));

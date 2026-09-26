@@ -48,7 +48,7 @@ TEST_CASE("secret to properties: plain keys pass through", "[s3_conversion]") {
 	                                                          {"secret", Value("shh")},
 	                                                          {"session_token", Value("tok")},
 	                                                          {"region", Value("eu-west-1")}})) ==
-	        "s3.access-key-id=AKIA, s3.region=eu-west-1, s3.secret-access-key=shh, s3.session-token=tok");
+	        "client.region=eu-west-1, s3.access-key-id=AKIA, s3.secret-access-key=shh, s3.session-token=tok");
 }
 
 TEST_CASE("secret to properties: empty, null and unrelated keys are omitted", "[s3_conversion]") {
@@ -89,7 +89,7 @@ TEST_CASE("properties to secret: plain keys pass through", "[s3_conversion]") {
 	REQUIRE(Render(ConvertIcebergPropertiesToS3Secret({{"s3.access-key-id", "AKIA"},
 	                                                   {"s3.secret-access-key", "shh"},
 	                                                   {"s3.session-token", "tok"},
-	                                                   {"s3.region", "eu-west-1"}})) ==
+	                                                   {"client.region", "eu-west-1"}})) ==
 	        "key_id='AKIA', region='eu-west-1', secret='shh', session_token='tok'");
 }
 
@@ -97,7 +97,7 @@ TEST_CASE("properties to secret: empty and unrelated properties are omitted", "[
 	REQUIRE(Render(ConvertIcebergPropertiesToS3Secret({{"s3.access-key-id", ""},
 	                                                   {"s3.endpoint", ""},
 	                                                   {"s3.connect-timeout-ms", "1000"},
-	                                                   {"client.region", "us-east-1"}})) == "");
+	                                                   {"s3.region", "us-east-1"}})) == "");
 }
 
 TEST_CASE("properties to secret: non-boolean path-style access and SSL enabled are ignored", "[s3_conversion]") {

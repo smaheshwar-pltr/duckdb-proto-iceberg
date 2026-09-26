@@ -7,7 +7,7 @@
 #include "duckdb/parser/parsed_data/attach_info.hpp"
 #include "duckdb/storage/storage_extension.hpp"
 
-#include "iceberg/catalog/rest/rest_catalog.h"
+#include "iceberg/catalog.h"
 
 namespace duckdb {
 
@@ -15,8 +15,8 @@ class ProtoIcebergSchemaEntry;
 
 class ProtoIcebergCatalog : public Catalog {
 public:
-	ProtoIcebergCatalog(AttachedDatabase &db_p, string catalog_uri,
-	                    std::shared_ptr<iceberg::rest::RestCatalog> rest_catalog, string default_schema);
+	ProtoIcebergCatalog(AttachedDatabase &db_p, string catalog_uri, std::shared_ptr<iceberg::Catalog> rest_catalog,
+	                    string default_schema);
 
 	static unique_ptr<Catalog> Attach(optional_ptr<StorageExtensionInfo> storage_info, ClientContext &context,
 	                                  AttachedDatabase &db, const string &name, AttachInfo &info,
@@ -32,7 +32,7 @@ public:
 
 	/// Acquires exclusive use of the REST catalog. Every call into it, including through a loaded iceberg::Table (e.g.
 	/// Table::Refresh()), must hold the returned guard, and only for the duration of that call.
-	Mutex<std::shared_ptr<iceberg::rest::RestCatalog>>::Guard LockRestCatalog() {
+	Mutex<std::shared_ptr<iceberg::Catalog>>::Guard LockRestCatalog() {
 		return rest_catalog_.Lock();
 	}
 
@@ -93,7 +93,7 @@ private:
 	string default_schema_;
 	// TODO: Drop the lock once iceberg-cpp documents RestCatalog as thread-safe. It currently isn't: its HttpClient
 	//   shares one libcurl connection cache across all requests.
-	Mutex<std::shared_ptr<iceberg::rest::RestCatalog>> rest_catalog_;
+	Mutex<std::shared_ptr<iceberg::Catalog>> rest_catalog_;
 };
 
 } // namespace duckdb

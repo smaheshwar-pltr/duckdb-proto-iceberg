@@ -39,7 +39,11 @@ set(ICEBERG_S3 ON CACHE BOOL "")
             CMAKE_PREFIX_PATH
             CMAKE_OSX_ARCHITECTURES
             CMAKE_OSX_DEPLOYMENT_TARGET
-            CMAKE_OSX_SYSROOT)
+            CMAKE_OSX_SYSROOT
+            # Set by the vcpkg toolchain, so that the sub-build uses the same installed packages.
+            VCPKG_TARGET_TRIPLET
+            VCPKG_HOST_TRIPLET
+            VCPKG_INSTALLED_DIR)
         if(NOT "${${var}}" STREQUAL "")
             string(APPEND init_cache "set(${var} [==[${${var}}]==] CACHE STRING \"\")\n")
         endif()

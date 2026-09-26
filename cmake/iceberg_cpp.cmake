@@ -14,20 +14,20 @@ block()
     set(install_dir "${CMAKE_BINARY_DIR}/_iceberg_install")
     set(stamp_file "${install_dir}/.iceberg_stamp")
 
-    # Settings are passed as an initial cache file so that list values survive. FORCE makes them
-    # override the cache of an existing build tree.
+    # Settings are passed as an initial cache file so that list values survive.
     set(init_cache [==[
-set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "" FORCE)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "")
+set(CMAKE_INSTALL_LIBDIR lib CACHE PATH "")
 # Build every dependency from source rather than picking up system packages.
-set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "" FORCE)
-set(ICEBERG_BUILD_STATIC ON CACHE BOOL "" FORCE)
-set(ICEBERG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-set(ICEBERG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ICEBERG_BUILD_BUNDLE ON CACHE BOOL "" FORCE)
-set(ICEBERG_BUILD_REST ON CACHE BOOL "" FORCE)
-set(ICEBERG_S3 ON CACHE BOOL "" FORCE)
+set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "")
+set(ICEBERG_BUILD_STATIC ON CACHE BOOL "")
+set(ICEBERG_BUILD_SHARED OFF CACHE BOOL "")
+set(ICEBERG_BUILD_TESTS OFF CACHE BOOL "")
+set(ICEBERG_BUILD_BUNDLE ON CACHE BOOL "")
+set(ICEBERG_BUILD_REST ON CACHE BOOL "")
+set(ICEBERG_S3 ON CACHE BOOL "")
 ]==])
-    string(APPEND init_cache "set(CMAKE_INSTALL_PREFIX [==[${install_dir}]==] CACHE PATH \"\" FORCE)\n")
+    string(APPEND init_cache "set(CMAKE_INSTALL_PREFIX [==[${install_dir}]==] CACHE PATH \"\")\n")
     foreach(var IN ITEMS
             CMAKE_BUILD_TYPE
             CMAKE_C_COMPILER
@@ -40,10 +40,8 @@ set(ICEBERG_S3 ON CACHE BOOL "" FORCE)
             CMAKE_OSX_ARCHITECTURES
             CMAKE_OSX_DEPLOYMENT_TARGET
             CMAKE_OSX_SYSROOT)
-        if("${${var}}" STREQUAL "")
-            string(APPEND init_cache "unset(${var} CACHE)\n")
-        else()
-            string(APPEND init_cache "set(${var} [==[${${var}}]==] CACHE STRING \"\" FORCE)\n")
+        if(NOT "${${var}}" STREQUAL "")
+            string(APPEND init_cache "set(${var} [==[${${var}}]==] CACHE STRING \"\")\n")
         endif()
     endforeach()
 
@@ -76,14 +74,16 @@ set(ICEBERG_S3 ON CACHE BOOL "" FORCE)
         file(WRITE "${build_dir}/init_cache.cmake" "${init_cache}")
 
         message(STATUS "[proto_iceberg] Building iceberg-cpp into ${install_dir}")
-        # iceberg-cpp turns on CMAKE_COMPILE_WARNING_AS_ERROR, which only this flag overrides.
-        execute_process(COMMAND ${CMAKE_COMMAND} --compile-no-warning-as-error -G "${CMAKE_GENERATOR}"
+        # --fresh drops the cache of a previous configuration, so only the settings above apply.
+        # iceberg-cpp turns on CMAKE_COMPILE_WARNING_AS_ERROR, which only --compile-no-warning-as-error overrides.
+        execute_process(COMMAND ${CMAKE_COMMAND} --fresh --compile-no-warning-as-error -G "${CMAKE_GENERATOR}"
                                 -C "${build_dir}/init_cache.cmake" -S "${source_dir}" -B "${build_dir}"
                         COMMAND_ERROR_IS_FATAL ANY)
         execute_process(COMMAND ${CMAKE_COMMAND} --build "${build_dir}" --config "${CMAKE_BUILD_TYPE}"
                                 --parallel ${jobs}
                         COMMAND_ERROR_IS_FATAL ANY)
         execute_process(COMMAND ${CMAKE_COMMAND} --install "${build_dir}" --config "${CMAKE_BUILD_TYPE}"
+                                --prefix "${install_dir}"
                         COMMAND_ERROR_IS_FATAL ANY)
         file(WRITE "${stamp_file}" "${stamp}")
     endif()

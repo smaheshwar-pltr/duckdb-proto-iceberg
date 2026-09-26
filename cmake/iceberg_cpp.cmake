@@ -18,6 +18,8 @@ block()
     set(init_cache [==[
 set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "")
 set(CMAKE_INSTALL_LIBDIR lib CACHE PATH "")
+# Lets the forwarded CMAKE_MSVC_RUNTIME_LIBRARY reach bundled dependencies that predate CMake 3.15.
+set(CMAKE_POLICY_DEFAULT_CMP0091 NEW CACHE STRING "")
 # Build every dependency from source rather than picking up system packages.
 set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "")
 set(ICEBERG_BUILD_STATIC ON CACHE BOOL "")
@@ -40,6 +42,8 @@ set(ICEBERG_S3 ON CACHE BOOL "")
             CMAKE_OSX_ARCHITECTURES
             CMAKE_OSX_DEPLOYMENT_TARGET
             CMAKE_OSX_SYSROOT
+            # DuckDB links the static MSVC runtime, and all objects in the extension must agree.
+            CMAKE_MSVC_RUNTIME_LIBRARY
             # Set by the vcpkg toolchain, so that the sub-build uses the same installed packages.
             VCPKG_TARGET_TRIPLET
             VCPKG_HOST_TRIPLET
@@ -48,6 +52,11 @@ set(ICEBERG_S3 ON CACHE BOOL "")
             string(APPEND init_cache "set(${var} [==[${${var}}]==] CACHE STRING \"\")\n")
         endif()
     endforeach()
+
+    # The AWS libraries Arrow bundles choose their MSVC runtime from their own option instead.
+    if(MSVC AND CMAKE_MSVC_RUNTIME_LIBRARY AND NOT CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "DLL")
+        string(APPEND init_cache "set(AWS_STATIC_MSVC_RUNTIME_LIBRARY ON CACHE BOOL \"\")\n")
+    endif()
 
     execute_process(COMMAND git rev-parse HEAD
                     WORKING_DIRECTORY "${source_dir}"

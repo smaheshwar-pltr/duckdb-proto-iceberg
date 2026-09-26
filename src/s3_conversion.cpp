@@ -1,6 +1,7 @@
 #include "s3_conversion.hpp"
 
 #include "iceberg/arrow/s3/s3_properties.h"
+#include "iceberg/util/property_util.h"
 
 #include <array>
 #include <optional>
@@ -31,19 +32,8 @@ constexpr std::array<PlainPropertyMapping, 4> kPlainPropertyMappings = {{
     {"key_id", S3Properties::kAccessKeyId},
     {"secret", S3Properties::kSecretAccessKey},
     {"session_token", S3Properties::kSessionToken},
-    {"region", S3Properties::kRegion},
+    {"region", S3Properties::kClientRegion},
 }};
-
-/// Parses an iceberg-cpp boolean property, which is exactly "true" or "false".
-std::optional<bool> ParseBool(std::string_view value) {
-	if (value == "true") {
-		return true;
-	}
-	if (value == "false") {
-		return false;
-	}
-	return std::nullopt;
-}
 
 /// Returns whether an Iceberg S3 endpoint's http(s) scheme implies SSL, or nullopt if it has no such scheme.
 std::optional<bool> SchemeUsesSsl(std::string_view endpoint) {
@@ -54,6 +44,16 @@ std::optional<bool> SchemeUsesSsl(std::string_view endpoint) {
 		return false;
 	}
 	return std::nullopt;
+}
+
+/// Rewrites an S3 scheme alias such as s3a:// or S3:// to s3://, as iceberg-cpp does before matching credential
+/// prefixes.
+std::string CanonicalizeS3Scheme(std::string_view location) {
+	if (auto separator = location.find("://");
+	    separator != std::string_view::npos && iceberg::arrow::IsS3Scheme(location.substr(0, separator))) {
+		return "s3://" + std::string(location.substr(separator + 3));
+	}
+	return std::string(location);
 }
 
 /// Returns DuckDB's scheme-less form of an Iceberg S3 endpoint, e.g. host:9000/path for http://host:9000/path/.
@@ -123,19 +123,47 @@ ConvertIcebergPropertiesToS3Secret(const std::unordered_map<std::string, std::st
 			options[string(duckdb_key)] = Value(string(value));
 		}
 	}
-	if (auto path_style = ParseBool(get(S3Properties::kPathStyleAccess))) {
+	// iceberg-cpp reads a present boolean as true only if it is "true", ignoring case.
+	if (auto path_style =
+	        iceberg::PropertyUtil::PropertyAsOptionalBoolean(properties, S3Properties::kPathStyleAccess)) {
 		options[kUrlStyle] = Value(*path_style ? kUrlStylePath : kUrlStyleVhost);
 	}
 	auto endpoint = get(S3Properties::kEndpoint);
 	if (auto duckdb_endpoint = ToDuckDBEndpoint(endpoint); !duckdb_endpoint.empty()) {
 		options[kEndpoint] = Value(string(duckdb_endpoint));
 	}
-	// The endpoint's scheme takes precedence over s3.ssl.enabled, as in iceberg-cpp: the AWS SDK uses an http(s)
-	// endpoint verbatim and only prefixes scheme-less ones with the scheme s3.ssl.enabled selects.
-	if (auto use_ssl = SchemeUsesSsl(endpoint).or_else([&] { return ParseBool(get(S3Properties::kSslEnabled)); })) {
+	// s3.ssl.enabled takes precedence over the endpoint's scheme, as in iceberg-cpp.
+	if (auto use_ssl =
+	        iceberg::PropertyUtil::PropertyAsOptionalBoolean(properties, S3Properties::kSslEnabled).or_else([&] {
+		        return SchemeUsesSsl(endpoint);
+	        })) {
 		options[kUseSsl] = Value::BOOLEAN(*use_ssl);
 	}
 	return options;
+}
+
+std::unordered_map<std::string, std::string>
+MergeStorageCredential(std::unordered_map<std::string, std::string> properties,
+                       std::span<const iceberg::StorageCredential> credentials, std::string_view location) {
+	const auto canonical_location = CanonicalizeS3Scheme(location);
+	const iceberg::StorageCredential *best = nullptr;
+	size_t best_length = 0;
+	for (const auto &credential : credentials) {
+		if (!iceberg::arrow::IsS3CredentialPrefix(credential.prefix)) {
+			continue;
+		}
+		auto prefix = CanonicalizeS3Scheme(credential.prefix);
+		if (prefix.size() > best_length && canonical_location.starts_with(prefix)) {
+			best = &credential;
+			best_length = prefix.size();
+		}
+	}
+	if (best) {
+		for (const auto &[key, value] : best->config) {
+			properties.insert_or_assign(key, value);
+		}
+	}
+	return properties;
 }
 
 } // namespace duckdb::conversion

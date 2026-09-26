@@ -9,6 +9,7 @@
 #include "duckdb/main/secret/secret.hpp"
 
 #include "iceberg/catalog/rest/catalog_properties.h"
+#include "iceberg/catalog/rest/rest_catalog.h"
 
 #include <unordered_map>
 
@@ -27,6 +28,9 @@ using constants::kWarehouse;
 
 const string kUri = "uri";
 const string kHeaderAuthorization = "header.Authorization";
+/// Asks the catalog to vend storage credentials with each loaded table. Some catalogs only vend when asked.
+const string kHeaderAccessDelegation = "header.X-Iceberg-Access-Delegation";
+const string kVendedCredentials = "vended-credentials";
 /// Path to look up the user's S3 secret at: only secrets scoped to all S3 paths match it, not per-bucket ones or the
 /// per-table secrets this extension creates.
 const string kS3RootPath = "s3://";
@@ -134,10 +138,15 @@ unique_ptr<Catalog> ProtoIcebergCatalog::Attach(optional_ptr<StorageExtensionInf
 	if (!params.token.empty()) {
 		catalog_props[kHeaderAuthorization] = kBearerPrefix + params.token;
 	}
+	catalog_props[kHeaderAccessDelegation] = kVendedCredentials;
+	// Metrics reports would add a request to the catalog server for every scan, outside the catalog lock.
+	catalog_props[iceberg::rest::RestCatalogProperties::kMetricsReportingEnabled.key()] = "false";
 
 	auto config = iceberg::rest::RestCatalogProperties::FromMap(catalog_props);
-	auto rest_catalog = UnwrapOrThrow(iceberg::rest::RestCatalog::Make(config),
-	                                  "Failed to create Iceberg REST catalog at %s", params.uri);
+	auto session_catalog = UnwrapOrThrow(iceberg::rest::RestCatalog::Make(config),
+	                                     "Failed to create Iceberg REST catalog at %s", params.uri);
+	auto rest_catalog =
+	    UnwrapOrThrow(session_catalog->AsCatalog(), "Failed to open Iceberg REST catalog at %s", params.uri);
 
 	auto catalog = make_uniq<ProtoIcebergCatalog>(db, std::move(params.uri), std::move(rest_catalog),
 	                                              std::move(params.default_schema));

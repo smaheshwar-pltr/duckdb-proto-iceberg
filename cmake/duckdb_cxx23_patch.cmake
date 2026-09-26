@@ -1,4 +1,4 @@
-# DuckDB v1.5.1's profiling_utils.hpp does not compile in a C++23 translation unit under libc++
+# DuckDB v1.5's profiling_utils.hpp does not compile in a C++23 translation unit under libc++
 # (Apple's standard library): QueryMetrics resets a unique_ptr<ActiveTimer> in an inline member
 # function before ActiveTimer is complete, and libc++ instantiates the constexpr unique_ptr members
 # eagerly in C++23. The patch moves those member functions below ActiveTimer's definition. It is
@@ -17,7 +17,7 @@ if(APPLE)
                             RESULT_VARIABLE result)
             if(NOT result EQUAL 0)
                 message(FATAL_ERROR "[proto_iceberg] Cannot apply ${patch} to the DuckDB tree at "
-                                    "${CMAKE_SOURCE_DIR}. Is it still DuckDB v1.5.1?")
+                                    "${CMAKE_SOURCE_DIR}. Is it still DuckDB v1.5?")
             endif()
             message(STATUS "[proto_iceberg] Applied ${patch}")
         endif()

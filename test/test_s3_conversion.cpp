@@ -4,6 +4,7 @@
 #include <map>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 using namespace duckdb;
 using namespace duckdb::conversion;
@@ -169,4 +170,28 @@ TEST_CASE("secret round-trips through iceberg-cpp properties", "[s3_conversion]"
 	               {"url_style", Value("path")},
 	               {"use_ssl", Value::BOOLEAN(false)}};
 	REQUIRE(Render(ConvertIcebergPropertiesToS3Secret(ConvertS3SecretToIcebergProperties(secret))) == Render(secret));
+}
+
+TEST_CASE("storage credential: without credentials the properties are unchanged", "[s3_conversion]") {
+	REQUIRE(Render(MergeStorageCredential({{"s3.access-key-id", "AKIA"}}, {}, "s3://bucket/table")) ==
+	        "s3.access-key-id=AKIA");
+}
+
+TEST_CASE("storage credential: the longest matching prefix overrides the properties", "[s3_conversion]") {
+	std::vector<iceberg::StorageCredential> credentials = {
+	    {.prefix = "s3://bucket/", .config = {{"s3.access-key-id", "BUCKET"}, {"s3.session-token", "bucket-token"}}},
+	    {.prefix = "s3://bucket/table", .config = {{"s3.access-key-id", "TABLE"}}},
+	    {.prefix = "s3://other/", .config = {{"s3.access-key-id", "OTHER"}}},
+	};
+	REQUIRE(Render(MergeStorageCredential({{"s3.access-key-id", "CATALOG"}, {"client.region", "eu-west-1"}},
+	                                      credentials, "s3://bucket/table")) ==
+	        "client.region=eu-west-1, s3.access-key-id=TABLE");
+}
+
+TEST_CASE("storage credential: credentials for other locations are ignored", "[s3_conversion]") {
+	std::vector<iceberg::StorageCredential> credentials = {
+	    {.prefix = "s3://other/", .config = {{"s3.access-key-id", "OTHER"}}},
+	};
+	REQUIRE(Render(MergeStorageCredential({{"s3.access-key-id", "CATALOG"}}, credentials, "s3://bucket/table")) ==
+	        "s3.access-key-id=CATALOG");
 }

@@ -59,7 +59,8 @@ void RegisterIcebergFileIO() {
 ///
 /// When Arrow finalizes S3 at exit, the AWS CRT can still be shutting down an event loop on another thread, which
 /// logs through the SDK's logger after the SDK has torn it down and crashes. With logging off the SDK installs no
-/// logger. Arrow reads ARROW_S3_LOG_LEVEL when S3 is first initialized.
+/// logger. Arrow reads ARROW_S3_LOG_LEVEL when S3 is first initialized. The variable is process-wide, so it also
+/// applies to other Arrow S3 users in the process and to child processes.
 void DisableAwsSdkLogging() {
 	static constexpr const char *kArrowS3LogLevel = "ARROW_S3_LOG_LEVEL";
 #ifdef _WIN32

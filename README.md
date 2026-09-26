@@ -39,6 +39,8 @@ GEN=ninja make release  # or: GEN=ninja make debug
 
 The first build takes longer: CMake downloads and builds iceberg-cpp and its vendored dependencies (Arrow, the AWS SDK and others) while configuring. Later builds skip this unless the submodule or its build settings change. Set `CMAKE_BUILD_PARALLEL_LEVEL` to limit build parallelism on machines with little memory.
 
+CI also builds loadable binaries for Linux (amd64, arm64) and macOS 13.3+ (amd64, arm64) with DuckDB's [extension-ci-tools](https://github.com/duckdb/extension-ci-tools); each run of the Main Extension Distribution Pipeline workflow attaches them as artifacts.
+
 See [docs/UPDATING.md](docs/UPDATING.md) for updating DuckDB or iceberg-cpp.
 
 ## Usage

@@ -67,7 +67,7 @@ private:
 			listed_ = true;
 		}
 
-		TableIndex::LookupResult Lookup(const string &name) {
+		TableIndex::LookupResult::Variant Lookup(const string &name) {
 			return index_.Lookup(name);
 		}
 

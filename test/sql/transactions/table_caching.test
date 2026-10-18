@@ -103,3 +103,41 @@ query I
 SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%LoadTable%test_table%';
 ----
 2
+
+# Listed before first use in one transaction: loaded once, then listed and scanned as the full table
+
+statement ok
+CALL truncate_duckdb_logs();
+
+statement ok
+BEGIN;
+
+query TT
+SELECT column_names, column_types FROM (SHOW ALL TABLES)
+WHERE database = 'lake' AND schema = 'default' AND name = 'test_table';
+----
+[__]	[UNKNOWN]
+
+query I
+SELECT count(*) FROM lake.default.test_table;
+----
+5
+
+query TT
+SELECT column_names, column_types FROM (SHOW ALL TABLES)
+WHERE database = 'lake' AND schema = 'default' AND name = 'test_table';
+----
+[id, name, value]	[INTEGER, VARCHAR, DOUBLE]
+
+query I
+SELECT sum(id) FROM lake.default.test_table;
+----
+15
+
+statement ok
+COMMIT;
+
+query I
+SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%LoadTable%test_table%';
+----
+1

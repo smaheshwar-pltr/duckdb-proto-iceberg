@@ -77,6 +77,13 @@ shared_ptr<ProtoIcebergScanInfo> ResolveScanInfo(ClientContext &context, ProtoIc
 optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIcebergTransaction &txn,
                                                                        const string &table_name, ClientContext &context,
                                                                        Mutex<TableState>::Guard &tables) {
+	auto retain_listing_entry = [&] {
+		auto status = tables->store.Lookup(table_name);
+		if (auto *entry = std::get_if<TableStore::Positive>(&status)) {
+			tables->replaced.push_back(std::move(*entry->value));
+		}
+	};
+
 	auto &ic_catalog = GetIcebergCatalog();
 	DUCKDB_LOG_DEBUG(context, "proto_iceberg: LoadTable '%s.%s'", name, table_name);
 	auto table_result = (*ic_catalog.LockRestCatalog())->LoadTable(conversion::GetTableIdentifier(name, table_name));
@@ -90,6 +97,7 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIceb
 				// Deferred namespace existence validation means we can reach table load without a present namespace.
 				MarkNamespaceNotFound();
 			}
+			retain_listing_entry();
 			tables->store.PutMiss(table_name);
 			return nullptr;
 		}
@@ -101,6 +109,7 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIceb
 
 	auto scan_info = ResolveScanInfo(context, txn, std::move(table_result.value()), name, table_name);
 	auto table_entry = CreateTableEntry(ic_catalog, *this, std::move(scan_info), table_name);
+	retain_listing_entry();
 	return tables->store.Put(table_name, std::move(table_entry)).get();
 }
 

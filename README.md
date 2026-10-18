@@ -24,34 +24,22 @@ DuckDB Engine
 
 ## Building
 
+Requirements:
+
+- CMake 3.25+ and Ninja
+- A C++23 compiler (CI uses GCC 14)
+- Development packages for libcurl, OpenSSL and zlib (`libcurl4-openssl-dev libssl-dev zlib1g-dev` on Debian/Ubuntu)
+
 ```sh
 git clone --recurse-submodules https://github.com/smaheshwar-pltr/duckdb-proto-iceberg.git
 cd duckdb-proto-iceberg
 
-# Debug
-GEN=ninja make debug
-
-# Release
-GEN=ninja make release
+GEN=ninja make release  # or: GEN=ninja make debug
 ```
 
-The first build takes longer, because iceberg-cpp and its vendored dependencies are compiled. Subsequent builds check changes and skip this step if there are none.
+The first build takes longer: CMake downloads and builds iceberg-cpp and its vendored dependencies (Arrow, the AWS SDK and others) while configuring. Later builds skip this unless the submodule or its build settings change. Set `CMAKE_BUILD_PARALLEL_LEVEL` to limit build parallelism on machines with little memory.
 
-### Updating iceberg-cpp
-
-Submodule updates are detected automatically, after pulling:
-
-```sh
-git submodule update --init --recursive
-GEN=ninja make debug
-```
-
-To force a full rebuild, delete the install directory:
-
-```sh
-rm -rf build/debug/_iceberg_install
-GEN=ninja make debug
-```
+See [docs/UPDATING.md](docs/UPDATING.md) for updating DuckDB or iceberg-cpp.
 
 ## Usage
 
@@ -75,11 +63,12 @@ SELECT * FROM my_catalog.my_namespace.my_table LIMIT 5;
 
 ```sh
 # Unit tests
-cmake --build build/debug --target proto_iceberg_unittest   # or build/release
-build/debug/extension/proto_iceberg/proto_iceberg_unittest  # or build/release
+make unittest_release  # or: make unittest_debug
 
-# Integration tests (requires Docker)
-test/scripts/run_integration_test.sh                        # BUILD_TYPE=release for a release build
+# Integration tests, against a REST catalog and object store in Docker
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r test/scripts/requirements.txt
+make integration_test_release  # or: make integration_test_debug
 ```
 
 Note: If debug builds hang, try using a release build instead.

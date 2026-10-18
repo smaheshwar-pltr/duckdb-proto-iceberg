@@ -1,23 +1,21 @@
-# Extension updating 
-When cloning this template, the target version of DuckDB should be the latest stable release of DuckDB. However, there 
-will inevitably come a time when a new DuckDB is released and the extension repository needs updating. This process goes
-as follows:
+# Updating dependencies
 
-- Bump submodules
-  - `./duckdb` should be set to latest tagged release
-  - `./extension-ci-tools` should be set to updated branch corresponding to latest DuckDB release. So if you're building for DuckDB `v1.1.0` there will be a branch in `extension-ci-tools` named `v1.1.0` to which you should check out. 
-- Bump versions in `./github/workflows`
-  - `duckdb_version` input in `duckdb-stable-build` job in `MainDistributionPipeline.yml` should be set to latest tagged release
-  - `duckdb_version` input in `duckdb-stable-deploy` job in `MainDistributionPipeline.yml` should be set to latest tagged release
-  - the reusable workflow `duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml` for the `duckdb-stable-build` job should be set to latest tagged release
+## DuckDB
 
-# API changes
-DuckDB extensions built with this extension template are built against the internal C++ API of DuckDB. This API is not guaranteed to be stable.
-What this means for extension development is that when updating your extensions DuckDB target version using the above steps, you may run into the fact that your extension no longer builds properly.
+The extension targets a DuckDB release, which is pinned in several places that must move together. Check out submodule commits explicitly rather than using `make update` or `make pull`, which move every submodule to the tip of its tracked branch.
 
-Currently, DuckDB does not (yet) provide a specific change log for these API changes, but it is generally not too hard to figure out what has changed.
+- The `duckdb` submodule: check out the release tag, and set its `branch` in `.gitmodules` to the release branch.
+- The `extension-ci-tools` submodule: check out the branch named after the release (e.g. `v1.5.1`), and set its `branch` in `.gitmodules` to match.
+- `.github/workflows/MainDistributionPipeline.yml`: the reusable workflow refs and the `duckdb_version` and `ci_tools_version` inputs.
+- `extension_config.cmake`: the httpfs `GIT_TAG`, which should match `duckdb/.github/config/extensions/httpfs.cmake`.
+- `cmake/duckdb_cxx23.patch`: check whether it is still needed. On macOS, configuring fails if it no longer applies.
 
-For figuring out how and why the C++ API changed, we recommend using the following resources:
-- DuckDB's [Release Notes](https://github.com/duckdb/duckdb/releases)
-- DuckDB's history of [Core extension patches](https://github.com/duckdb/duckdb/commits/main/.github/patches/extensions)
-- The git history of the relevant C++ Header file of the API that has changed
+Extensions are built against DuckDB's internal C++ API, which can change between releases without a changelog. If the extension no longer compiles, these help to find out what changed:
+
+- DuckDB's [release notes](https://github.com/duckdb/duckdb/releases)
+- The history of DuckDB's [core extension patches](https://github.com/duckdb/duckdb/commits/main/.github/patches/extensions)
+- The git history of the affected DuckDB headers
+
+## iceberg-cpp
+
+Check out the new commit in `third_party/iceberg-cpp` and run `make`. The build notices the new revision and rebuilds iceberg-cpp during configuration. To force a clean rebuild, delete `build/<type>/_iceberg_install` and `build/<type>/_iceberg_build`.

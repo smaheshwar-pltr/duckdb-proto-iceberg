@@ -6,7 +6,6 @@ namespace duckdb {
 
 class ProtoIcebergCatalog;
 class ProtoIcebergSchemaEntry;
-class ProtoIcebergTransaction;
 struct ProtoIcebergScanInfo;
 
 class ProtoIcebergTableEntry : public TableCatalogEntry {
@@ -30,6 +29,8 @@ public:
 
 private:
 	shared_ptr<ProtoIcebergScanInfo> scan_info_;
+	/// Whether this entry's scoped S3 secret has been created.
+	bool has_secret_ = false;
 };
 
 } // namespace duckdb

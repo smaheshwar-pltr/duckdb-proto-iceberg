@@ -40,7 +40,7 @@ TEST_CASE("Lock on a const Mutex returns a ConstGuard that provides read-only ac
 	static_assert(std::is_const_v<std::remove_reference_t<decltype(*guard)>>);
 }
 
-TEST_CASE("Moved-from Guard does not deadlock on destruction", "[mutex]") {
+TEST_CASE("Moving a Guard transfers the lock", "[mutex]") {
 	Mutex<int> m(std::in_place, 10);
 	{
 		auto g1 = m.Lock();

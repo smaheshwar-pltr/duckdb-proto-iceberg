@@ -1,12 +1,3 @@
-/// SignedStore<Key, Value> — a three-state store.
-///
-/// Every entry is in one of three states:
-///   Unknown  — never looked up
-///   Negative — looked up and confirmed absent
-///   Positive — looked up and found
-///
-/// Not thread-safe.
-
 #pragma once
 
 #include <map>
@@ -14,18 +5,18 @@
 
 namespace duckdb {
 
+/// A map whose keys are each unknown, negative (known absent) or positive (found). Not thread-safe.
 template <typename Key, typename Value>
 class SignedStore {
 public:
 	struct Unknown {};
 	struct Negative {};
 	struct Positive {
-		// Points into the store; valid only until the next mutation. Don't mutate the store while visiting.
+		// Points into the store, so it's only valid until the next mutation.
 		Value *value;
 	};
 	using LookupResult = std::variant<Unknown, Negative, Positive>;
 
-	/// Looks up an entry by key.
 	[[nodiscard]] LookupResult Lookup(const Key &key) {
 		auto it = entries_.find(key);
 		if (it == entries_.end()) {
@@ -37,18 +28,18 @@ public:
 		return Negative {};
 	}
 
-	/// Stores a positive entry (unconditional).
+	/// Stores a positive entry, replacing any previous one.
 	Value &Put(const Key &key, Value value) {
 		auto [it, _] = entries_.insert_or_assign(key, StoredValue {std::move(value)});
 		return std::get<Value>(it->second);
 	}
 
-	/// Stores a negative entry (unconditional).
+	/// Stores a negative entry, replacing any previous one.
 	void PutMiss(const Key &key) {
 		entries_.insert_or_assign(key, std::monostate {});
 	}
 
-	/// Iterates over all positive entries.
+	/// Visits positive entries in key order; fn must not mutate the store.
 	template <typename Fn>
 	void ForEachPositive(Fn &&fn) {
 		for (auto &[key, stored] : entries_) {

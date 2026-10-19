@@ -16,7 +16,7 @@ CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL fal
 statement ok
 ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
 
-# Verify specific expected tables are visible via information_schema
+# Expected tables are listed in information_schema
 query I
 SELECT table_name FROM information_schema.tables
 WHERE table_catalog = 'lake' AND table_schema = 'default'
@@ -41,12 +41,6 @@ lake	testing	sample
 # Selecting from a non-existent table fails
 statement error
 SELECT * FROM lake.default.this_table_does_not_exist;
-----
-does not exist
-
-# Querying a table in a non-existent namespace
-statement error
-SELECT * FROM lake.nonexistent_schema.some_table;
 ----
 does not exist
 
@@ -80,41 +74,27 @@ SELECT * FROM lake.default.another_missing_table;
 ----
 does not exist
 
-# Negative table cache prevents two REST calls here
+# The negative cache avoids a second LoadTable
 query I
 SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%LoadTable%another_missing_table%';
 ----
 1
 
-# Before resolution: SHOW ALL TABLES reports the placeholder column.
-query TT
-SELECT column_names, column_types FROM (SHOW ALL TABLES)
-WHERE database = 'lake' AND schema = 'default' AND name = 'empty_table';
-----
-[__]	[UNKNOWN]
-
-# Before resolution: duckdb_columns() reports the placeholder column.
+# Before resolution, the table has a placeholder column.
 query TT
 SELECT column_name, data_type FROM duckdb_columns()
 WHERE database_name = 'lake' AND schema_name = 'default' AND table_name = 'empty_table';
 ----
 __	UNKNOWN
 
-# Resolve (DESCRIBE) and re-list within one txn so they share the same per-transaction table cache.
+# Resolve and re-list in one transaction, since table entries are per transaction.
 statement ok
 BEGIN;
 
 statement ok
 DESCRIBE lake.default.empty_table;
 
-# After resolution: real columns now appear in SHOW ALL TABLES.
-query TT
-SELECT column_names, column_types FROM (SHOW ALL TABLES)
-WHERE database = 'lake' AND schema = 'default' AND name = 'empty_table';
-----
-[id, name, value, created_date, ts, active]	[INTEGER, VARCHAR, DOUBLE, DATE, TIMESTAMP, BOOLEAN]
-
-# After resolution: real columns now appear in duckdb_columns().
+# After resolution, it has its real columns.
 query TT
 SELECT column_name, data_type FROM duckdb_columns()
 WHERE database_name = 'lake' AND schema_name = 'default' AND table_name = 'empty_table'

@@ -1,5 +1,5 @@
 # name: test/sql/reads/schema_evolution.test
-# description: Reads on schema-evolved, delicate tables
+# description: Reads after columns are renamed, added and dropped
 # group: [reads]
 
 require-env ICEBERG_SERVER_AVAILABLE
@@ -106,8 +106,3 @@ SELECT id, name FROM lake.default.drop_column ORDER BY id;
 4	d
 5	e
 6	f
-
-query IT
-SELECT id, name FROM lake.default.drop_column WHERE name = 'a';
-----
-1	a

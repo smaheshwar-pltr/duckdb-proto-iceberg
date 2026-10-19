@@ -44,7 +44,7 @@ TEST_CASE("bigint", "[literal_conversion]") {
 TEST_CASE("float approximation", "[literal_conversion]") {
 	auto lit = ConvertValueToLiteral(Value::FLOAT(3.14f));
 	REQUIRE(lit.has_value());
-	// Typed value compare rather than ToString (which depends on std::to_string formatting).
+	// Compares the typed value rather than ToString's float formatting.
 	REQUIRE(std::get<float>(lit->value()) == 3.14f);
 }
 
@@ -224,7 +224,7 @@ TEST_CASE("large negative decimal exercising int128 sign extension", "[literal_c
 }
 
 TEST_CASE("large positive decimal needs nonzero hugeint upper word", "[literal_conversion]") {
-	// hugeint_t{upper=1, lower=0} = 2^64: the high word is nonzero, so (upper << 64) | lower must preserve it.
+	// 2^64, whose nonzero upper word must survive (upper << 64) | lower.
 	auto val = Value::HUGEINT(hugeint_t(1, 0));
 	auto decimal_val = val.DefaultCastAs(LogicalType::DECIMAL(38, 0));
 	auto lit = ConvertValueToLiteral(decimal_val);

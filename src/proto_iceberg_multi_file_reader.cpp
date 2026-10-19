@@ -26,7 +26,7 @@ shared_ptr<MultiFileList> ProtoIcebergMultiFileReader::CreateFileList(ClientCont
 bool ProtoIcebergMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
                                        vector<LogicalType> &return_types, vector<string> &names,
                                        MultiFileReaderBindData &bind_data) {
-	// Configure bind schema with field-ID identifiers for column mapping.
+	// Iceberg identifies columns by field ID, which survives renames.
 	const auto &list = files.Cast<ProtoIcebergMultiFileList>();
 	bind_data.schema = conversion::BuildColumnList(*list.GetScanSchema());
 	for (const auto &col : bind_data.schema) {

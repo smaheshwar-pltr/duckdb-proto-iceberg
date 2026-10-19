@@ -64,21 +64,19 @@ CreateSecretInput BuildScopedS3Secret(const iceberg::Table &table) {
 
 	auto input = MakeBaseS3SecretInput();
 	input.scope.push_back(std::move(scope_prefix));
-	// Scope to write.data.path too, that may live outside the table's location
+	// Data files may be written outside the table's location, under write.data.path.
 	if (string write_data_path {table.properties().Get(iceberg::TableProperties::kWriteDataLocation)};
 	    !write_data_path.empty()) {
 		input.scope.push_back(scope_with_slash(std::move(write_data_path)));
 	}
 
-	// TODO: Respect storage credentials REST field, not just the credentials in IO properties
+	// TODO: Create a secret per vended storage credential, not just the metadata location's.
 	input.options = conversion::ConvertIcebergPropertiesToS3Secret(io->properties());
 	return input;
 }
 
-/// A connection's temporary secrets for vended credentials, which are dropped when its transaction ends.
-///
-/// Secrets are written in the connection's system catalog transaction, which DuckDB may commit after the Iceberg
-/// catalog's, so they can only reliably be dropped once the whole transaction has committed or rolled back.
+/// A connection's temporary secrets for vended credentials, dropped once its whole transaction ends: they're written
+/// in the system catalog's transaction, which DuckDB may commit after the Iceberg catalog's.
 class ScopedSecrets : public ClientContextState {
 public:
 	static ScopedSecrets &Get(ClientContext &context) {
@@ -160,8 +158,7 @@ TableFunction ConfigureIcebergScan(ClientContext &context, const shared_ptr<Prot
 	return iceberg_scan;
 }
 
-/// Builds a placeholder input that parquet_scan's binder expects; the real file list is derived lazily by
-/// ProtoIcebergMultiFileList via iceberg-cpp scan planning.
+/// A dummy file list for parquet_scan's binder; ProtoIcebergMultiFileList plans the real files.
 vector<Value> MakePlaceholderScanInputs() {
 	return {Value::LIST(LogicalType::VARCHAR, vector<Value> {Value("iceberg_placeholder")})};
 }
@@ -196,14 +193,14 @@ unique_ptr<BaseStatistics> ProtoIcebergTableEntry::GetStatistics(ClientContext &
 }
 
 TableFunction ProtoIcebergTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) {
-	if (!scan_info_ || !scan_info_->table) {
+	if (NeedsLoad()) {
 		throw InternalException("Cannot scan Iceberg table '%s' before it is fully loaded", name);
 	}
 
 	// httpfs provides the S3 secret type; load it before creating the scoped S3 secret.
 	ExtensionHelper::AutoLoadExtension(DatabaseInstance::GetDatabase(context), kHttpfsExtension);
 	// The entry lives for one transaction and pins its table, so its scans share one secret.
-	// TODO: Support credential refresh (in some manner) within a transaction, which would change this.
+	// TODO: Refresh credentials within a transaction.
 	if (!has_secret_) {
 		ScopedSecrets::Get(context).Create(context, catalog.GetName(), *scan_info_->table);
 		has_secret_ = true;

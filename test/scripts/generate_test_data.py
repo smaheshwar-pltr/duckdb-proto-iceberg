@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate test data in Iceberg tables via PyIceberg."""
 
-import time
 import datetime
+import time
+import urllib.request
 import uuid
 from decimal import Decimal
 import pyarrow as pa
@@ -33,8 +34,6 @@ from pyiceberg.transforms import IdentityTransform, DayTransform
 
 def wait_for_catalog(catalog_uri, max_retries=30, delay=2):
     """Wait for the REST catalog to be ready."""
-    import urllib.request
-
     for i in range(max_retries):
         try:
             urllib.request.urlopen(f"{catalog_uri}/v1/config", timeout=5)
@@ -96,7 +95,7 @@ def drop_and_create(catalog, table_id, schema, partition_spec=None, properties=N
 
 
 def create_basic_table(catalog):
-    """Basic types: int, string, double. 5 rows."""
+    """A small table most tests read."""
     schema = Schema(
         NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
         NestedField(field_id=2, name="name", field_type=StringType(), required=False, doc="Display name"),
@@ -118,7 +117,7 @@ def create_basic_table(catalog):
 
 
 def create_all_types_table(catalog):
-    """All primitive types for schema mapping verification."""
+    """One column of each primitive type except time and fixed."""
     schema = Schema(
         NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
         NestedField(field_id=2, name="col_bool", field_type=BooleanType(), required=False),
@@ -331,9 +330,8 @@ def create_multi_append_table(catalog):
         print(f"  Inserted batch {batch_num} (5 rows) into 'default.multi_append'")
 
 
-def create_join_tables(catalog):
-    """Orders + customers tables for join tests."""
-    # Orders table
+def create_orders_table(catalog):
+    """Orders, keyed by customer_id, for join tests."""
     orders_schema = Schema(
         NestedField(field_id=1, name="order_id", field_type=IntegerType(), required=False),
         NestedField(field_id=2, name="customer_id", field_type=IntegerType(), required=False),
@@ -365,36 +363,9 @@ def create_join_tables(catalog):
     orders_table.append(orders_data)
     print(f"  Inserted {len(orders_data)} rows into 'default.orders'")
 
-    # Customers table
-    customers_schema = Schema(
-        NestedField(field_id=1, name="customer_id", field_type=IntegerType(), required=False),
-        NestedField(field_id=2, name="name", field_type=StringType(), required=False),
-        NestedField(field_id=3, name="city", field_type=StringType(), required=False),
-    )
-
-    customers_table = drop_and_create(catalog, "default.customers", customers_schema)
-
-    customers_data = pa.table(
-        {
-            "customer_id": pa.array([1, 2, 3, 5], type=pa.int32()),
-            "name": pa.array(["Alice", "Bob", "Charlie", "Eve"], type=pa.string()),
-            "city": pa.array(["New York", "London", "Tokyo", "Paris"], type=pa.string()),
-        }
-    )
-
-    customers_table.append(customers_data)
-    print(f"  Inserted {len(customers_data)} rows into 'default.customers'")
-
 
 def create_schema_evolution_table(catalog):
-    """Table with a renamed column to test schema evolution.
-
-    Creates a table with (id, details), writes 3 rows, renames 'details' to
-    'description', then writes 3 more rows.  The earlier Parquet files still
-    have the physical column name 'details', while the current Iceberg schema
-    says 'description'.  A correct reader must resolve columns by field-id,
-    not by name.
-    """
+    """A column renamed between appends, so reads must resolve columns by field ID."""
     schema = Schema(
         NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
         NestedField(field_id=2, name="details", field_type=StringType(), required=False),
@@ -402,7 +373,6 @@ def create_schema_evolution_table(catalog):
 
     table = drop_and_create(catalog, "default.schema_evolution", schema)
 
-    # First batch — written under the original column name 'details'
     batch1 = pa.table(
         {
             "id": pa.array([1, 2, 3], type=pa.int32()),
@@ -412,15 +382,13 @@ def create_schema_evolution_table(catalog):
     table.append(batch1)
     print(f"  Inserted {len(batch1)} rows into 'default.schema_evolution' (before rename)")
 
-    # Rename 'details' -> 'description' via schema evolution
     with table.update_schema() as update:
         update.rename_column("details", "description")
     print("  Renamed column 'details' -> 'description'")
 
-    # Reload the table so the PyIceberg writer sees the updated schema
+    # Reload so the writer uses the new schema.
     table = catalog.load_table("default.schema_evolution")
 
-    # Second batch — written under the new column name 'description'
     batch2 = pa.table(
         {
             "id": pa.array([4, 5, 6], type=pa.int32()),
@@ -432,11 +400,7 @@ def create_schema_evolution_table(catalog):
 
 
 def create_multi_partition_table(catalog):
-    """Two partition columns (region, year) for filter pushdown tests.
-
-    3 regions x 3 years = 9 partition combos, each appended separately to
-    produce 9 data files.  2 rows per combo = 18 rows total.
-    """
+    """Partitioned by region and year: 9 partitions of 2 rows, one file each, for filter pushdown tests."""
     schema = Schema(
         NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
         NestedField(field_id=2, name="region", field_type=StringType(), required=False),
@@ -485,11 +449,11 @@ def create_multi_partition_table(catalog):
             table.append(data)
             row_id += 2
 
-    print(f"  Inserted 18 rows into 'default.multi_partition' (3 regions x 3 years = 9 files)")
+    print("  Inserted 18 rows into 'default.multi_partition' (3 regions x 3 years = 9 files)")
 
 
 def create_empty_table(catalog):
-    """Empty table (no rows) with a multi-type schema."""
+    """A table with no rows."""
     schema = Schema(
         NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
         NestedField(field_id=2, name="name", field_type=StringType(), required=False),
@@ -504,7 +468,7 @@ def create_empty_table(catalog):
 
 
 def create_pinned_schema_table(catalog):
-    """Table where schema evolves (column renamed) but NO data is written after."""
+    """A column renamed with no data written afterwards."""
     schema = Schema(
         NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
         NestedField(field_id=2, name="old_name", field_type=StringType(), required=False),
@@ -521,18 +485,14 @@ def create_pinned_schema_table(catalog):
     table.append(data)
     print(f"  Inserted {len(data)} rows into 'default.pinned_schema' (before rename)")
 
-    # Rename column without writing new data — no new snapshot is created.
+    # A schema change alone creates no snapshot.
     with table.update_schema() as update:
         update.rename_column("old_name", "new_name")
     print("  Renamed column 'old_name' -> 'new_name' (no new data written)")
 
 
 def create_rollback_table(catalog):
-    """Table that is rolled back to a previous snapshot.
-
-    Creates a table, writes batch1, writes batch2, then rolls back to batch1's
-    snapshot (so a reader should see only batch1 data).
-    """
+    """Two appends, then a rollback to the first."""
     schema = Schema(
         NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
         NestedField(field_id=2, name="value", field_type=StringType(), required=False),
@@ -540,7 +500,6 @@ def create_rollback_table(catalog):
 
     table = drop_and_create(catalog, "default.rollback_table", schema)
 
-    # Batch 1
     batch1 = pa.table(
         {
             "id": pa.array([1, 2, 3], type=pa.int32()),
@@ -552,7 +511,6 @@ def create_rollback_table(catalog):
     snapshot_after_batch1 = table.metadata.current_snapshot_id
     print(f"  Inserted batch1 (3 rows) into 'default.rollback_table', snapshot={snapshot_after_batch1}")
 
-    # Batch 2
     batch2 = pa.table(
         {
             "id": pa.array([4, 5, 6], type=pa.int32()),
@@ -564,7 +522,6 @@ def create_rollback_table(catalog):
     snapshot_after_batch2 = table.metadata.current_snapshot_id
     print(f"  Inserted batch2 (3 rows) into 'default.rollback_table', snapshot={snapshot_after_batch2}")
 
-    # Rollback to batch1's snapshot
     table.manage_snapshots().rollback_to_snapshot(snapshot_id=snapshot_after_batch1).commit()
     table = catalog.load_table("default.rollback_table")
     print(f"  Rolled back to snapshot={snapshot_after_batch1}, current={table.metadata.current_snapshot_id}")
@@ -572,7 +529,7 @@ def create_rollback_table(catalog):
 
 
 def create_testing_namespace(catalog):
-    """Create a second namespace 'testing' with a simple table for schema listing tests."""
+    """A second namespace, 'testing', with one table."""
     try:
         catalog.create_namespace("testing")
         print("Created namespace 'testing'")
@@ -627,7 +584,6 @@ def create_nested_types_table(catalog):
 
     table = drop_and_create(catalog, "default.nested_types", schema)
 
-    # PyArrow struct, list, and map arrays
     info_array = pa.StructArray.from_arrays(
         [
             pa.array(["Alice", "Bob", "Charlie", None], type=pa.string()),
@@ -658,12 +614,7 @@ def create_nested_types_table(catalog):
 
 
 def create_add_column_table(catalog):
-    """ADD COLUMN via schema evolution after writing data.
-
-    Writes 3 rows under (id, name), adds column 'extra', then writes 3 more rows
-    with 'extra' populated. The first Parquet files lack 'extra', so a correct
-    reader NULL-fills them.
-    """
+    """A column added between appends, so reads must NULL-fill it for the older files."""
     schema = Schema(
         NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
         NestedField(field_id=2, name="name", field_type=StringType(), required=False),
@@ -696,11 +647,7 @@ def create_add_column_table(catalog):
 
 
 def create_drop_column_table(catalog):
-    """DROP COLUMN via schema evolution after writing data.
-
-    Writes 3 rows under (id, name, obsolete), drops 'obsolete', then writes 3
-    more rows under (id, name). The dropped column must not appear in reads.
-    """
+    """A column dropped between appends, which reads must not surface."""
     schema = Schema(
         NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
         NestedField(field_id=2, name="name", field_type=StringType(), required=False),
@@ -734,7 +681,7 @@ def create_drop_column_table(catalog):
 
 
 def create_time_table(catalog):
-    """TIME type round-trip (time-of-day microseconds)."""
+    """A TIME column."""
     schema = Schema(
         NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
         NestedField(field_id=2, name="col_time", field_type=TimeType(), required=False),
@@ -802,7 +749,7 @@ def main():
     create_partitioned_table(catalog)
     create_date_partitioned_table(catalog)
     create_multi_append_table(catalog)
-    create_join_tables(catalog)
+    create_orders_table(catalog)
     create_schema_evolution_table(catalog)
 
     create_multi_partition_table(catalog)

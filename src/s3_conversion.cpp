@@ -96,8 +96,7 @@ ConvertS3SecretToIcebergProperties(const case_insensitive_tree_t<Value> &secret)
 	} else if (url_style == kUrlStyleVhost) {
 		properties[string(S3Properties::kPathStyleAccess)] = "false";
 	}
-	// DuckDB's scheme-less endpoint passes through: iceberg-cpp hands it and s3.ssl.enabled to Arrow, which passes
-	// them to the AWS SDK, which prefixes a scheme-less endpoint with the scheme s3.ssl.enabled selects.
+	// Passed through scheme-less: the AWS SDK, via iceberg-cpp and Arrow, adds the scheme s3.ssl.enabled selects.
 	if (auto endpoint = get_string(kEndpoint); !endpoint.empty()) {
 		properties[string(S3Properties::kEndpoint)] = std::move(endpoint);
 	}
@@ -130,8 +129,7 @@ ConvertIcebergPropertiesToS3Secret(const std::unordered_map<std::string, std::st
 	if (auto duckdb_endpoint = ToDuckDBEndpoint(endpoint); !duckdb_endpoint.empty()) {
 		options[kEndpoint] = Value(string(duckdb_endpoint));
 	}
-	// The endpoint's scheme takes precedence over s3.ssl.enabled, as in iceberg-cpp: the AWS SDK uses an http(s)
-	// endpoint verbatim and only prefixes scheme-less ones with the scheme s3.ssl.enabled selects.
+	// An endpoint's scheme overrides s3.ssl.enabled, since the AWS SDK uses an http(s) endpoint verbatim.
 	if (auto use_ssl = SchemeUsesSsl(endpoint).or_else([&] { return ParseBool(get(S3Properties::kSslEnabled)); })) {
 		options[kUseSsl] = Value::BOOLEAN(*use_ssl);
 	}

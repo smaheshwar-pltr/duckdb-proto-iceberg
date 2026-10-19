@@ -7,9 +7,8 @@
 
 namespace duckdb {
 
-/// Returns the result's value, or throws `Exc` with a formatted message and the error text appended. The value is
-/// returned by reference for an lvalue result and moved out by value for an rvalue one, so it never refers into a
-/// temporary result.
+/// Returns the result's value, or throws Exc with the formatted message and the error appended. An rvalue result's
+/// value is moved out, so the return never refers into a temporary.
 template <typename Exc = IOException, typename ResultT, typename... Args>
 auto UnwrapOrThrow(ResultT &&result, const string &fmt, Args &&...args)
     -> std::conditional_t<std::is_lvalue_reference_v<ResultT>, decltype(result.value()),

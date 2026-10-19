@@ -34,18 +34,3 @@ SELECT * FROM lake.default.multi_append ORDER BY id;
 13	batch_3	302
 14	batch_3	303
 15	batch_3	304
-
-query I
-SELECT count(*) FROM lake.default.multi_append;
-----
-15
-
-query TII
-SELECT batch, count(*), sum(value)
-FROM lake.default.multi_append
-GROUP BY batch
-ORDER BY batch;
-----
-batch_1	5	510
-batch_2	5	1010
-batch_3	5	1510

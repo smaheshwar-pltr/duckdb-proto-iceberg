@@ -1,6 +1,4 @@
-#
-# This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
-#
+# Builds and tests the extension binaries with DuckDB's distribution pipeline.
 name: Main Extension Distribution Pipeline
 on:
   push:
@@ -34,5 +32,5 @@ jobs:
       duckdb_version: v1.5.1
       ci_tools_version: v1.5.1
       extension_name: proto_iceberg
-      # FIXME: Disable tidy to prevent full compilation
+      # Only check formatting; clang-tidy would need a full build.
       format_checks: 'format'

@@ -1,6 +1,6 @@
 # DuckDB ProtoIceberg extension
 
-An experimental, C++23 DuckDB extension for [Apache Iceberg](https://iceberg.apache.org/), that leverages [Apache Iceberg C++ (iceberg-cpp)](https://github.com/apache/iceberg-cpp) to provide read-only access to tables. Currently, the extension supports Iceberg REST catalogs with tables in S3; credential vending enables access delegation.
+An experimental C++23 DuckDB extension that reads [Apache Iceberg](https://iceberg.apache.org/) tables using [Apache Iceberg C++ (iceberg-cpp)](https://github.com/apache/iceberg-cpp). It supports Iceberg REST catalogs with tables in S3, including vended credentials.
 
 This project is largely inspired by [duckdb-iceberg](https://github.com/duckdb/duckdb-iceberg). While that extension implements its own Iceberg client, this project aims to delegate to Iceberg's C++ implementation instead.
 
@@ -12,14 +12,14 @@ Our catalog system has three levels: catalog, schema, and table. These are mappe
 
 ```
 DuckDB Engine
- ├─ ProtoIcebergCatalog                           (wraps iceberg::rest::RestCatalog)
- │   └─ ProtoIcebergSchemaEntry                   (Iceberg namespace + table store)
- │       └─ ProtoIcebergTableEntry                (wraps Iceberg table)
+ ├─ ProtoIcebergCatalog                           (wraps an iceberg-cpp REST catalog)
+ │   └─ ProtoIcebergSchemaEntry                   (Iceberg namespace and its tables)
+ │       └─ ProtoIcebergTableEntry                (wraps an Iceberg table)
  │           └─ parquet_scan                      (via MultiFileReader API)
- │               └─ ProtoIcebergMultiFileReader   (creates file list + field-ID schema binding)
- │                   └─ ProtoIcebergMultiFileList (lazy file planning + filter pushdown)
+ │               └─ ProtoIcebergMultiFileReader   (creates file list and field-ID schema binding)
+ │                   └─ ProtoIcebergMultiFileList (lazy file planning and filter pushdown)
  └─ ProtoIcebergTransactionManager
-     └─ ProtoIcebergTransaction                   (schema store + timestamp + secrets)
+     └─ ProtoIcebergTransaction                   (schemas and start timestamp)
 ```
 
 ## Building
@@ -73,4 +73,4 @@ pip install -r test/scripts/requirements.txt
 make integration_test_release  # or: make integration_test_debug
 ```
 
-Note: If debug builds hang, try using a release build instead.
+If debug builds hang, use a release build instead.

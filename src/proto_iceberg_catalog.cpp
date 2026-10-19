@@ -20,7 +20,7 @@ ProtoIcebergCatalog::ProtoIcebergCatalog(AttachedDatabase &db_p, string catalog_
 }
 
 void ProtoIcebergCatalog::RegisterS3Finalizer() {
-	// Must be called after Arrow S3 initialization so static destruction runs at the right time.
+	// Constructed after Arrow S3's statics, so it finalizes S3 before they're destroyed.
 	struct S3Finalizer {
 		~S3Finalizer() {
 			[[maybe_unused]] auto status = iceberg::arrow::FinalizeS3();
@@ -58,8 +58,7 @@ void ProtoIcebergCatalog::ScanSchemas(ClientContext &context, std::function<void
 		std::set<std::string_view> listed_names;
 		for (auto &ns : namespaces) {
 			if (ns.levels.size() != 1) {
-				// We don't expect multi-level namespaces being children of the root namespace.
-				// We choose to ignore them, and report single-level children as schemas instead.
+				// The root's children should be single-level; skip any that aren't.
 				DUCKDB_LOG_WARNING(context, "proto_iceberg: skipping unexpected child namespace '%s'", ns.ToString());
 				continue;
 			}
@@ -94,7 +93,7 @@ optional_ptr<SchemaCatalogEntry> ProtoIcebergCatalog::LookupSchema(CatalogTransa
 			return schema.get();
 		}
 	} else if (!schemas.Listed()) {
-		// Optimistically create the schema without verifying the namespace exists (deferred validation).
+		// Create the schema without checking that its namespace exists; a later listing or table load does.
 		return &schemas.Store(schema_name, MakeSchemaEntry(schema_name));
 	}
 

@@ -10,7 +10,7 @@ using namespace duckdb;
 // duckdb_tables() captures references to a schema's table entries and reads them as result chunks are
 // fetched, so loading a table mid-scan (which replaces its listing placeholder) must not free the
 // placeholder the scan still references.
-TEST_CASE("listing entries survive replacement during a streaming scan", "[retention]") {
+TEST_CASE("listing placeholders survive replacement during a streaming scan", "[retention]") {
 	// Enough tables to span several result chunks so the scan can be paused partway.
 	constexpr idx_t table_count = 5000;
 

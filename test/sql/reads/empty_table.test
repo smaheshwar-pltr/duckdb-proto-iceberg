@@ -27,7 +27,6 @@ created_date	DATE	YES	NULL	NULL	NULL
 ts	TIMESTAMP	YES	NULL	NULL	NULL
 active	BOOLEAN	YES	NULL	NULL	NULL
 
-# Assert emptiness via count(*). TODO: Test actual data
 query I
 SELECT count(*) FROM lake.default.empty_table;
 ----

@@ -1,5 +1,5 @@
 # name: test/sql/catalog/show_schemas.test
-# description: Namespace listing via information_schema and debug logs
+# description: Namespace listing
 # group: [catalog]
 
 require-env ICEBERG_SERVER_AVAILABLE
@@ -23,14 +23,6 @@ SELECT schema_name FROM information_schema.schemata WHERE catalog_name = 'lake' 
 default
 testing
 
-# Tables in the second namespace are queryable
-query IT
-SELECT * FROM lake.testing.sample ORDER BY id;
-----
-1	x
-2	y
-3	z
-
 # ListNamespaces is called when scanning schemas
 statement ok
 CALL enable_logging(level := 'debug');
@@ -48,11 +40,11 @@ SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%ListNamespaces%';
 ----
 1
 
-# Within a transaction, the namespace listing is authoritative
+# Within a transaction, namespaces absent from the listing don't exist
 statement ok
 BEGIN;
 
-# Before listing, an unknown namespace is accepted (deferred validation)
+# Before listing, an unknown namespace is accepted
 statement ok
 USE lake.does_not_exist;
 

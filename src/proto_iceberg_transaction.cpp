@@ -1,6 +1,6 @@
 #include "proto_iceberg_transaction.hpp"
-#include "proto_iceberg_catalog.hpp"
 
+#include "duckdb/common/exception/transaction_exception.hpp"
 #include "duckdb/transaction/transaction.hpp"
 #include "duckdb/transaction/transaction_manager.hpp"
 #include "duckdb/transaction/meta_transaction.hpp"
@@ -44,8 +44,7 @@ bool ProtoIcebergTransaction::LockedSchemas::Listed() const {
 }
 
 void ProtoIcebergTransaction::LockedSchemas::CompleteListing(const std::set<std::string_view> &listed_names) {
-	// The listing is authoritative for the rest of the transaction, so optimistically-created schemas it doesn't
-	// contain don't exist.
+	// Schemas looked up before the listing but absent from it don't exist.
 	for (auto &entry : guard_->schemas | std::views::values) {
 		if (!listed_names.contains(entry->name)) {
 			entry->MarkNamespaceMissing();
@@ -58,8 +57,7 @@ ProtoIcebergTransaction &ProtoIcebergTransaction::Get(ClientContext &context, At
 	return Transaction::Get(context, db).Cast<ProtoIcebergTransaction>();
 }
 
-ProtoIcebergTransactionManager::ProtoIcebergTransactionManager(AttachedDatabase &db_p, ProtoIcebergCatalog &catalog)
-    : TransactionManager(db_p), catalog_(catalog) {
+ProtoIcebergTransactionManager::ProtoIcebergTransactionManager(AttachedDatabase &db_p) : TransactionManager(db_p) {
 }
 
 ProtoIcebergTransactionManager::~ProtoIcebergTransactionManager() = default;

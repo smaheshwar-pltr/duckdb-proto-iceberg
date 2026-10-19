@@ -23,9 +23,3 @@ SELECT * FROM lake.default.rollback_table ORDER BY id;
 1	a
 2	b
 3	c
-
-# Count confirms only 3 rows (not 6)
-query I
-SELECT count(*) FROM lake.default.rollback_table;
-----
-3

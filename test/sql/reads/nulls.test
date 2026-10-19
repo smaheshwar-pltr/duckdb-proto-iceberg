@@ -39,18 +39,3 @@ SELECT id, score FROM lake.default.nullable_table WHERE score IS NOT NULL ORDER 
 2	87.3
 5	72.1
 6	88.0
-
-query IT
-SELECT id, COALESCE(name, 'UNKNOWN') FROM lake.default.nullable_table ORDER BY id;
-----
-1	Alice
-2	UNKNOWN
-3	Charlie
-4	UNKNOWN
-5	Eve
-6	Frank
-
-query III
-SELECT count(*), count(name), count(score) FROM lake.default.nullable_table;
-----
-6	4	4

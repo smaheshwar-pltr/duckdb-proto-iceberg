@@ -14,8 +14,7 @@ public:
 	                       shared_ptr<ProtoIcebergScanInfo> scan_info_p);
 	~ProtoIcebergTableEntry() override;
 
-	/// Returns true if this is a lightweight entry from table listing
-	/// that needs a full LoadTable before it can be scanned or described.
+	/// Returns whether this is a listing placeholder, which must be loaded before it's scanned or described.
 	bool NeedsLoad() const {
 		return !scan_info_;
 	}

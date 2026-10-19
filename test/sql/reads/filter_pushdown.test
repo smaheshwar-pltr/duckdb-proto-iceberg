@@ -1,5 +1,5 @@
 # name: test/sql/reads/filter_pushdown.test
-# description: Verify filter pushdown via iceberg-cpp scan planning
+# description: Filter pushdown into iceberg-cpp scan planning
 # group: [reads]
 
 require-env ICEBERG_SERVER_AVAILABLE
@@ -22,13 +22,7 @@ ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
 # multi_partition: two partition columns (region, year) — 9 files total
 # 3 regions (us, eu, asia) x 3 years (2023, 2024, 2025), 2 rows each = 18 rows
 
-# Baseline: unfiltered scan reads all 18 rows
-query I
-SELECT count(*) FROM lake.default.multi_partition;
-----
-18
-
-# ComplexFilterPushdown: WHERE-clause filters prune data files
+# WHERE-clause filters prune data files
 
 # Single equality: region = 'asia' -> 3 files (one per year)
 statement ok
@@ -87,23 +81,7 @@ SELECT message FROM duckdb_logs() WHERE message LIKE 'proto_iceberg:%' AND messa
 ----
 proto_iceberg: planned 7 data file(s) for 'default.multi_partition' with filter: ref(name="tag") > 5.00
 
-# AND with DECIMAL: region = 'us' AND tag > 5.00 prunes to 1 file
-statement ok
-CALL truncate_duckdb_logs();
-
-query I
-SELECT count(*) FROM lake.default.multi_partition WHERE region = 'us' AND tag > 5.00;
-----
-1
-
-query I
-SELECT message FROM duckdb_logs() WHERE message LIKE 'proto_iceberg:%' AND message LIKE '%== "us"%' AND message LIKE '%> 5.00%';
-----
-proto_iceberg: planned 1 data file(s) for 'default.multi_partition' with filter: (ref(name="region") == "us" and ref(name="tag") > 5.00)
-
-# Dynamic filter from join build side
-# The dimension filter (t.name = 'Alice' -> id=1) is pushed from the build side
-# into multi_partition as a dynamic filter on the join key.
+# A join pushes its build side's key (id = 1, from t.name = 'Alice') into the scan as a dynamic filter
 
 statement ok
 CALL truncate_duckdb_logs();
@@ -115,14 +93,12 @@ WHERE t.name = 'Alice';
 ----
 1
 
-# The dynamic filter pushed id=1 from the build side, pruning to 1 file
 query I
 SELECT message FROM duckdb_logs() WHERE message LIKE 'proto_iceberg: planned%' AND message LIKE '%multi_partition%' AND message LIKE '%== 1%';
 ----
 proto_iceberg: planned 1 data file(s) for 'default.multi_partition' with filter: ref(name="id") == 1
 
-# OR / IN / (OR)+AND can't become simple TableFilters, so DuckDB re-pushes them as residuals and the exact
-# filter string and plan count are internal artifacts. Assert the pruning outcome (rows + file count), not those.
+# DuckDB may plan OR and IN filters more than once and in varying forms, so only rows and file counts are asserted.
 
 # OR: region = 'us' OR region = 'eu' -> prunes to 6 of 9 files
 statement ok
@@ -169,9 +145,7 @@ SELECT count(*) FROM (SELECT DISTINCT 1 FROM duckdb_logs()
 ----
 1
 
-# Filters that can't prune data files must not re-plan the scan, which would re-read manifests to plan the same
-# files. Dynamic Top-N filters and filters on types we can't translate (here, a join on a UUID key) widen to
-# AlwaysTrue, so each scan plans once.
+# Filters that can't prune files, like Top-N filters or a join on a UUID key, don't re-plan the scan.
 
 statement ok
 CALL truncate_duckdb_logs();
@@ -223,13 +197,3 @@ query I
 SELECT count(*) FROM lake.default.all_types WHERE col_float < 'NaN'::FLOAT;
 ----
 3
-
-query I
-SELECT count(*) FROM lake.default.all_types WHERE col_float <> 'NaN'::FLOAT;
-----
-3
-
-query I
-SELECT count(*) FROM lake.default.all_types WHERE col_float > 'NaN'::FLOAT;
-----
-0

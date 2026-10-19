@@ -8,7 +8,6 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/storage/storage_extension.hpp"
-#include "duckdb/main/extension_helper.hpp"
 
 #include "iceberg/arrow/arrow_register.h"
 #include "iceberg/avro/avro_register.h"
@@ -26,9 +25,8 @@ const string kIcebergExtensionName = "proto_iceberg";
 const string kStorageExtensionName = "iceberg";
 
 unique_ptr<TransactionManager> CreateIcebergTransactionManager(optional_ptr<StorageExtensionInfo>, AttachedDatabase &db,
-                                                               Catalog &catalog) {
-	auto &ic_catalog = catalog.Cast<ProtoIcebergCatalog>();
-	return make_uniq<ProtoIcebergTransactionManager>(db, ic_catalog);
+                                                               Catalog &) {
+	return make_uniq<ProtoIcebergTransactionManager>(db);
 }
 
 class ProtoIcebergStorageExtension : public StorageExtension {

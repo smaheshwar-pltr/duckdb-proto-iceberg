@@ -12,32 +12,30 @@ class Schema;
 
 namespace duckdb {
 
-/// Indicates that iceberg-cpp should read the table in its current state (snapshot and schema).
+/// Reads the table's current snapshot and schema.
 struct CurrentRead {};
 
-/// Indicates that iceberg-cpp should read at a specific snapshot (and that schema).
+/// Reads a specific snapshot with that snapshot's schema.
 struct PinnedRead {
 	int64_t snapshot_id;
 };
 
-/// Mode indicating what version of the table to read.
+/// Which version of the table to read.
 using ScanMode = std::variant<CurrentRead, PinnedRead>;
 
-/// Carries information required for a table read from the catalog layer to the scan layer.
+/// What a table scan needs from the catalog.
 struct ProtoIcebergScanInfo : TableFunctionInfo {
 	ProtoIcebergScanInfo(std::shared_ptr<iceberg::Table> table_p, ScanMode mode_p,
 	                     std::shared_ptr<iceberg::Schema> schema_p)
 	    : table(std::move(table_p)), mode(std::move(mode_p)), schema(std::move(schema_p)) {
 	}
 
-	/// Shared by every scan of the table in a transaction, and scans may plan files concurrently. Only read from it:
-	/// refreshing or committing through it would race with them.
+	/// Shared by the transaction's concurrent scans of the table, so only read from it.
 	std::shared_ptr<iceberg::Table> table;
 	ScanMode mode;
 
-	/// Caches the Iceberg schema for this scan.
-	/// Precondition: This must be the schema that iceberg-cpp will independently resolve for this read during scan
-	/// planning. For PinnedRead, this is the snapshot's schema; for CurrentRead, this is the table's current schema.
+	/// Must be the schema iceberg-cpp resolves for this read (the snapshot's for PinnedRead, the current one for
+	/// CurrentRead), since iceberg-cpp binds pushed-down filters' column names against its own.
 	std::shared_ptr<iceberg::Schema> schema;
 };
 

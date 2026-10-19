@@ -67,9 +67,11 @@ add_executable(proto_iceberg_unittest EXCLUDE_FROM_ALL
     test/test_column_definition.cpp
     test/test_mutex.cpp
     test/test_unwrap.cpp
-    test/test_s3_conversion.cpp)
+    test/test_s3_conversion.cpp
+    test/test_table_entry_retention.cpp)
 target_include_directories(proto_iceberg_unittest PRIVATE
     src/include
+    test
     "${CMAKE_SOURCE_DIR}/third_party/catch")
 target_link_libraries(proto_iceberg_unittest PRIVATE ${EXTENSION_NAME} ${ICEBERG_LIBRARIES} duckdb)
 

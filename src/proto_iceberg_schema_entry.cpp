@@ -74,16 +74,15 @@ shared_ptr<ProtoIcebergScanInfo> ResolveScanInfo(ClientContext &context, ProtoIc
 
 } // namespace
 
+ProtoIcebergTableEntry &ProtoIcebergSchemaEntry::TableRegistry::Store(unique_ptr<ProtoIcebergTableEntry> entry) {
+	auto &stored = *entries_.emplace_back(std::move(entry));
+	index_.Put(stored.name, stored);
+	return stored;
+}
+
 optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIcebergTransaction &txn,
                                                                        const string &table_name, ClientContext &context,
-                                                                       Mutex<TableState>::Guard &tables) {
-	auto retain_listing_entry = [&] {
-		auto status = tables->store.Lookup(table_name);
-		if (auto *entry = std::get_if<TableStore::Positive>(&status)) {
-			tables->replaced.push_back(std::move(*entry->value));
-		}
-	};
-
+                                                                       Mutex<TableRegistry>::Guard &tables) {
 	auto &ic_catalog = GetIcebergCatalog();
 	DUCKDB_LOG_DEBUG(context, "proto_iceberg: LoadTable '%s.%s'", name, table_name);
 	auto table_result = (*ic_catalog.LockCatalog())->LoadTable(conversion::GetTableIdentifier(name, table_name));
@@ -95,10 +94,9 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIceb
 		    namespace_missing || kind == iceberg::ErrorKind::kNoSuchTable) {
 			if (namespace_missing) {
 				// Deferred namespace existence validation means we can reach table load without a present namespace.
-				MarkNamespaceNotFound();
+				MarkNamespaceMissing();
 			}
-			retain_listing_entry();
-			tables->store.PutMiss(table_name);
+			tables->MarkMissing(table_name);
 			return nullptr;
 		}
 		throw IOException("Failed to load table '%s.%s': %s", name, table_name, message);
@@ -109,8 +107,7 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIceb
 
 	auto scan_info = ResolveScanInfo(context, txn, std::move(table_result.value()), name, table_name);
 	auto table_entry = CreateTableEntry(ic_catalog, *this, std::move(scan_info), table_name);
-	retain_listing_entry();
-	return tables->store.Put(table_name, std::move(table_entry)).get();
+	return &tables->Store(std::move(table_entry));
 }
 
 ProtoIcebergSchemaEntry::ProtoIcebergSchemaEntry(Catalog &catalog, CreateSchemaInfo &info)
@@ -180,7 +177,7 @@ void ProtoIcebergSchemaEntry::Scan(ClientContext &context, CatalogType type,
 	if (type != CatalogType::TABLE_ENTRY) {
 		return;
 	}
-	if (NamespaceNotFound()) {
+	if (IsNamespaceMissing()) {
 		// A prior LoadTable proved this namespace absent; nothing to list.
 		return;
 	}
@@ -190,32 +187,30 @@ void ProtoIcebergSchemaEntry::Scan(ClientContext &context, CatalogType type,
 
 	// List tables at most once per namespace per transaction. Creates lightweight entries to avoid calling LoadTable
 	// for every table during SHOW ALL TABLES; LoadTable is deferred to LookupEntry.
-	if (!tables->listed) {
+	if (!tables->Listed()) {
 		DUCKDB_LOG_DEBUG(context, "proto_iceberg: ListTables in namespace '%s'", name);
 		auto result = (*ic_catalog.LockCatalog())->ListTables(conversion::GetNamespace(name));
 		if (!result.has_value() && result.error().kind == iceberg::ErrorKind::kNoSuchNamespace) {
 			// An optimistically-created schema that doesn't exist; nothing to list.
-			MarkNamespaceNotFound();
+			MarkNamespaceMissing();
 			return;
 		}
 		const auto &children = UnwrapOrThrow(result, "Failed to list tables in namespace '%s'", name);
 
-		tables->listed = true;
+		tables->MarkListed();
 		for (const auto &[_, tbl_name] : children) {
-			if (auto status = tables->store.Lookup(tbl_name); std::holds_alternative<TableStore::Unknown>(status)) {
+			if (std::holds_alternative<TableIndex::Unknown>(tables->Lookup(tbl_name))) {
 				auto create_info = make_uniq<CreateTableInfo>();
 				create_info->table = tbl_name;
 				// Use a "__"/UNKNOWN placeholder for not-yet-resolved tables to avoid a LoadTable per listed table, see
 				// https://github.com/duckdb/duckdb-iceberg/issues/515.
 				create_info->columns.AddColumn(ColumnDefinition("__", LogicalType::UNKNOWN));
-				tables->store.Put(tbl_name,
-				                  make_uniq<ProtoIcebergTableEntry>(ic_catalog, *this, *create_info, nullptr));
+				tables->Store(make_uniq<ProtoIcebergTableEntry>(ic_catalog, *this, *create_info, nullptr));
 			}
 		}
 	}
 
-	tables->store.ForEachPositive(
-	    [&](const string &, const unique_ptr<ProtoIcebergTableEntry> &entry) { callback(*entry); });
+	tables->ForEach([&](const string &, reference<ProtoIcebergTableEntry> entry) { callback(entry.get()); });
 }
 
 void ProtoIcebergSchemaEntry::Scan(CatalogType type, const std::function<void(CatalogEntry &)> &callback) {
@@ -236,29 +231,24 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LookupEntry(CatalogTransacti
 	auto &ic_catalog = GetIcebergCatalog();
 	auto &txn = ProtoIcebergTransaction::Get(transaction.GetContext(), ic_catalog.GetAttached());
 	auto tables = tables_.Lock();
-	auto status = tables->store.Lookup(table_name);
+	auto status = tables->Lookup(table_name);
 
 	return std::visit(
 	    Overloaded {
-	        // If table has been confirmed absent from catalog, report that immediately.
-	        // When a table isn't found in this catalog, DuckDB falls back to searching other sources.
-	        // Our negative cache therefore prevents repeated, potentially costly REST catalog lookups for the
-	        // same missing table.
-	        [](TableStore::Negative &) -> optional_ptr<CatalogEntry> { return nullptr; },
+	        // Known absent: a negative cache, so DuckDB's fallback to other sources doesn't re-query the catalog.
+	        [](TableIndex::Negative &) -> optional_ptr<CatalogEntry> { return nullptr; },
 
-	        // If the table has been stored already, return it — unless it's a lightweight entry from table listing that
-	        // needs a full LoadTable to populate scan_info.
-	        [&](const TableStore::Positive &positive) -> optional_ptr<CatalogEntry> {
-		        auto &entry = **positive.value;
+	        // Already stored, unless it's a listing placeholder that still needs a full LoadTable for its scan info.
+	        [&](const TableIndex::Positive &positive) -> optional_ptr<CatalogEntry> {
+		        auto &entry = positive.value->get();
 		        if (entry.NeedsLoad()) {
 			        return LoadFullTableEntry(txn, table_name, transaction.GetContext(), tables);
 		        }
 		        return &entry;
 	        },
 
-	        // Otherwise, the table has not yet been stored; load it from the Iceberg REST catalog and store accordingly
-	        // (depending on whether the table exists or not).
-	        [&](TableStore::Unknown &) -> optional_ptr<CatalogEntry> {
+	        // Not yet looked up: load it from the catalog.
+	        [&](TableIndex::Unknown &) -> optional_ptr<CatalogEntry> {
 		        return LoadFullTableEntry(txn, table_name, transaction.GetContext(), tables);
 	        },
 	    },

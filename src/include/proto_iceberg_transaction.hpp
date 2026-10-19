@@ -9,6 +9,7 @@
 
 #include <map>
 #include <ranges>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -40,14 +41,14 @@ public:
 
 		/// Returns whether schemas have been listed.
 		bool Listed() const;
-		/// Signals that schemas have been listed.
-		void MarkListed();
+		/// Marks schemas absent from the listing as missing and completes this transaction's listing.
+		void CompleteListing(const std::set<std::string_view> &listed_names);
 
 		/// Iterates present schema entries.
 		template <typename Fn>
 		void ForEach(Fn &&fn) {
 			for (auto &entry : guard_->schemas | std::views::values) {
-				if (!entry->NamespaceNotFound()) {
+				if (!entry->IsNamespaceMissing()) {
 					fn(*entry);
 				}
 			}

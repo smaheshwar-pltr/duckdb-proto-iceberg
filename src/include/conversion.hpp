@@ -4,6 +4,7 @@
 
 #include "duckdb/common/multi_file/multi_file_data.hpp"
 #include "duckdb/common/types.hpp"
+#include "duckdb/parser/column_definition.hpp"
 
 #include "iceberg/expression/expression.h"
 #include "iceberg/expression/literal.h"
@@ -49,6 +50,9 @@ inline iceberg::TableIdentifier GetTableIdentifier(std::string_view namespace_na
 
 /// Builds the DuckDB column list for an Iceberg schema via BuildColumnDefinition per top-level field.
 [[nodiscard]] vector<MultiFileColumnDefinition> BuildColumnList(const iceberg::Schema &schema);
+
+/// Builds a catalog ColumnDefinition for an Iceberg field, mapping its type and its doc to a column comment.
+[[nodiscard]] ColumnDefinition BuildCatalogColumn(const iceberg::SchemaField &field);
 
 /// Conservatively translates a TableFilterSet into an iceberg-cpp Expression.
 /// Column indices are resolved via the schema's field list. Untranslatable

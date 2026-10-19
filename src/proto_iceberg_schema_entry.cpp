@@ -31,11 +31,7 @@ unique_ptr<ProtoIcebergTableEntry> CreateTableEntry(ProtoIcebergCatalog &ic_cata
 	auto create_info = make_uniq<CreateTableInfo>();
 	create_info->table = entry_name;
 	for (auto &field : scan_info->schema->fields()) {
-		ColumnDefinition col(string(field.name()), conversion::MapIcebergType(*field.type()));
-		if (!field.doc().empty()) {
-			col.SetComment(Value(string(field.doc())));
-		}
-		create_info->columns.AddColumn(std::move(col));
+		create_info->columns.AddColumn(conversion::BuildCatalogColumn(field));
 	}
 	return make_uniq<ProtoIcebergTableEntry>(ic_catalog, schema, *create_info, std::move(scan_info));
 }

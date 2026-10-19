@@ -61,6 +61,14 @@ vector<MultiFileColumnDefinition> BuildColumnList(const iceberg::Schema &schema)
 	       std::ranges::to<vector<MultiFileColumnDefinition>>();
 }
 
+ColumnDefinition BuildCatalogColumn(const iceberg::SchemaField &field) {
+	ColumnDefinition column(std::string(field.name()), MapIcebergType(*field.type()));
+	if (!field.doc().empty()) {
+		column.SetComment(Value(std::string(field.doc())));
+	}
+	return column;
+}
+
 LogicalType MapIcebergType(const iceberg::Type &type) {
 	switch (type.type_id()) {
 	case iceberg::TypeId::kBoolean:

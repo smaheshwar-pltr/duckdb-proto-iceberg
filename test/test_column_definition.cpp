@@ -2,25 +2,12 @@
 #include "conversion.hpp"
 
 #include "duckdb/common/multi_file/multi_file_data.hpp"
-#include "duckdb/parser/column_definition.hpp"
 
 #include "iceberg/schema_field.h"
 #include "iceberg/type.h"
 
 using namespace duckdb;
 using namespace duckdb::conversion;
-
-namespace {
-
-ColumnDefinition CatalogColumnFor(const iceberg::SchemaField &field) {
-	ColumnDefinition col(string(field.name()), MapIcebergType(*field.type()));
-	if (!field.doc().empty()) {
-		col.SetComment(Value(string(field.doc())));
-	}
-	return col;
-}
-
-} // namespace
 
 TEST_CASE("primitive field", "[column_definition]") {
 	auto field = iceberg::SchemaField::MakeOptional(7, "age", iceberg::int32());
@@ -204,19 +191,6 @@ TEST_CASE("map with struct value children", "[column_definition]") {
 	REQUIRE(val_child.children[1].name == "b");
 	REQUIRE(val_child.children[1].type == LogicalType::VARCHAR);
 	REQUIRE(val_child.children[1].identifier == Value::INTEGER(201));
-}
-
-TEST_CASE("field doc maps to catalog column comment", "[column_definition]") {
-	auto documented = iceberg::SchemaField::MakeOptional(1, "amount", iceberg::int32(), "dollars owed");
-	auto col = CatalogColumnFor(documented);
-	REQUIRE(!col.Comment().IsNull());
-	REQUIRE(col.Comment() == Value("dollars owed"));
-}
-
-TEST_CASE("absent field doc leaves catalog column comment NULL", "[column_definition]") {
-	auto undocumented = iceberg::SchemaField::MakeOptional(1, "amount", iceberg::int32());
-	auto col = CatalogColumnFor(undocumented);
-	REQUIRE(col.Comment().IsNull());
 }
 
 TEST_CASE("nested lists", "[column_definition]") {

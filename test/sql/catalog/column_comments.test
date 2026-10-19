@@ -1,0 +1,36 @@
+# name: test/sql/catalog/column_comments.test
+# description: Iceberg field docs surface as column comments
+# group: [catalog]
+
+require-env ICEBERG_SERVER_AVAILABLE
+
+require proto_iceberg
+
+require httpfs
+
+require parquet
+
+statement ok
+CREATE SECRET (TYPE S3, ENDPOINT 'localhost:9000', URL_STYLE 'path', USE_SSL false);
+
+statement ok
+ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
+
+# Resolve and read columns in one transaction; listed but unresolved tables only have a placeholder column.
+statement ok
+BEGIN;
+
+statement ok
+DESCRIBE lake.default.test_table;
+
+query TT
+SELECT column_name, comment FROM duckdb_columns()
+WHERE database_name = 'lake' AND schema_name = 'default' AND table_name = 'test_table'
+ORDER BY column_index;
+----
+id	NULL
+name	Display name
+value	NULL
+
+statement ok
+COMMIT;

@@ -33,35 +33,24 @@ inline iceberg::TableIdentifier GetTableIdentifier(std::string_view namespace_na
 	return iceberg::TableIdentifier {.ns = GetNamespace(namespace_name), .name = std::string(table_name)};
 }
 
-/// Maps an iceberg-cpp Type to the corresponding DuckDB LogicalType.
-/// Throws InvalidInputException if an unsupported TypeId is encountered.
+/// Maps an iceberg-cpp type to a DuckDB type, throwing InvalidInputException if it's unsupported.
 [[nodiscard]] LogicalType MapIcebergType(const iceberg::Type &type);
 
-/// Converts a DuckDB Value to an iceberg-cpp Literal.
-/// Returns std::nullopt for unsupported types.
+/// Converts a DuckDB value to an iceberg-cpp literal, or nullopt if it's NULL or its type is unsupported.
 [[nodiscard]] std::optional<iceberg::Literal> ConvertValueToLiteral(const Value &value);
 
-/// Builds a MultiFileColumnDefinition from an Iceberg SchemaField, including
-/// recursive child field IDs for nested types (STRUCT, LIST, MAP).
-/// The top-level definition gets its identifier set to the field's field_id,
-/// and nested children are populated recursively.
+/// Builds a column definition identified by the field's ID, with nested fields identified the same way.
 [[nodiscard]] MultiFileColumnDefinition BuildColumnDefinition(const iceberg::SchemaField &field);
 
-/// Builds the DuckDB column list for an Iceberg schema via BuildColumnDefinition per top-level field.
+/// Builds a column definition for each top-level field of the schema.
 [[nodiscard]] vector<MultiFileColumnDefinition> BuildColumnList(const iceberg::Schema &schema);
 
-/// Conservatively translates a TableFilterSet into an iceberg-cpp Expression.
-/// Column indices are resolved via the schema's field list. Untranslatable
-/// filters widen to AlwaysTrue(), so the result is guaranteed to be no narrower
-/// than the original — suitable for scan planning where over-reading is safe
-/// but under-reading is not.
+/// Translates filters, keyed by index into the schema's fields, for scan planning. Untranslatable filters widen to
+/// AlwaysTrue, so the result never excludes rows the filters keep.
 [[nodiscard]] std::shared_ptr<iceberg::Expression> TranslateOrWidenFilters(const TableFilterSet &filters,
                                                                            const iceberg::Schema &schema);
 
-/// Conservatively translates a single DuckDB TableFilter into an iceberg-cpp
-/// Expression. Unsupported filter types or value conversions widen to
-/// AlwaysTrue(), preserving the invariant that the result never excludes rows
-/// the original filter would have kept.
+/// Translates a single filter, widening whatever it can't translate to AlwaysTrue.
 [[nodiscard]] std::shared_ptr<iceberg::Expression> TranslateOrWidenFilter(const TableFilter &filter,
                                                                           const iceberg::SchemaField &field);
 

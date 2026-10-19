@@ -1,5 +1,5 @@
 # name: test/sql/transactions/table_caching.test
-# description: Table caching within transactions verified via debug logs
+# description: Each table is loaded once per transaction
 # group: [transactions]
 
 require-env ICEBERG_SERVER_AVAILABLE
@@ -19,34 +19,7 @@ ATTACH '' AS lake (TYPE ICEBERG, ENDPOINT 'http://localhost:8181');
 statement ok
 CALL enable_logging(level := 'debug');
 
-# Same table twice in one transaction: one LoadTable call
-
-statement ok
-CALL truncate_duckdb_logs();
-
-statement ok
-BEGIN;
-
-query I
-SELECT count(*) FROM lake.default.test_table;
-----
-5
-
-# Second access in same transaction uses cached entry
-query I
-SELECT count(*) FROM lake.default.test_table;
-----
-5
-
-statement ok
-COMMIT;
-
-query I
-SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%LoadTable%test_table%';
-----
-1
-
-# Different tables in one transaction: each loaded once
+# Each table is loaded once per transaction, however often it's used
 
 statement ok
 CALL truncate_duckdb_logs();
@@ -72,7 +45,6 @@ SELECT count(*) FROM lake.default.test_table;
 statement ok
 COMMIT;
 
-# test_table and orders each loaded once (test_table NOT loaded twice)
 query I
 SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%LoadTable%test_table%';
 ----
@@ -83,7 +55,7 @@ SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%LoadTable%orders%';
 ----
 1
 
-# Separate auto-commit queries: fresh LoadTable each time
+# Each autocommit query loads the table anew
 
 statement ok
 CALL truncate_duckdb_logs();
@@ -98,7 +70,6 @@ SELECT count(*) FROM lake.default.test_table;
 ----
 5
 
-# Two separate auto-commit transactions -> two LoadTable calls
 query I
 SELECT count(*) FROM duckdb_logs() WHERE message LIKE '%LoadTable%test_table%';
 ----

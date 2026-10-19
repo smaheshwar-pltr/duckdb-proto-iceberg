@@ -1,10 +1,8 @@
 PROJ_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 
-# Configuration of extension
 EXT_NAME=proto_iceberg
 EXT_CONFIG=${PROJ_DIR}extension_config.cmake
 
-# Include the Makefile from extension-ci-tools
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
 .PHONY: unittest_release unittest_debug integration_test_release integration_test_debug

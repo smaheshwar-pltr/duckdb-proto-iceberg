@@ -65,8 +65,8 @@ inline unique_ptr<Catalog> Attach(optional_ptr<StorageExtensionInfo> storage_inf
 }
 
 inline unique_ptr<TransactionManager> CreateTransactionManager(optional_ptr<StorageExtensionInfo>, AttachedDatabase &db,
-                                                               Catalog &catalog) {
-	return make_uniq<ProtoIcebergTransactionManager>(db, catalog.Cast<ProtoIcebergCatalog>());
+                                                               Catalog &) {
+	return make_uniq<ProtoIcebergTransactionManager>(db);
 }
 
 class FakeStorageExtension : public StorageExtension {

@@ -14,10 +14,8 @@ namespace duckdb::conversion {
 [[nodiscard]] std::unordered_map<std::string, std::string>
 ConvertS3SecretToIcebergProperties(const case_insensitive_tree_t<Value> &secret);
 
-/// Converts iceberg-cpp S3 properties to DuckDB S3 secret options.
-///
-/// Iceberg's s3.endpoint is a URI whose http(s) scheme, if present, determines SSL and takes precedence over
-/// s3.ssl.enabled. DuckDB's endpoint is scheme-less, with SSL set by use_ssl.
+/// Converts iceberg-cpp S3 properties to DuckDB S3 secret options. An http(s) scheme on s3.endpoint sets use_ssl,
+/// overriding s3.ssl.enabled, and is stripped since DuckDB's endpoint is scheme-less.
 [[nodiscard]] case_insensitive_map_t<Value>
 ConvertIcebergPropertiesToS3Secret(const std::unordered_map<std::string, std::string> &properties);
 

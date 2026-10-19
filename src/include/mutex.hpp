@@ -1,12 +1,3 @@
-/// Mutex<T> — bundles a value with its protecting mutex.
-///
-/// The only way to access the inner T is via Lock(), which acquires
-/// the mutex and returns an RAII guard.
-///
-/// Lifetime: a Guard must not outlive the Mutex it was acquired
-/// from. The Guard holds a pointer into the Mutex and a lock on
-/// its mutex; both dangle if the Mutex is destroyed first.
-
 #pragma once
 
 #include "duckdb/common/assert.hpp"
@@ -15,6 +6,7 @@
 
 namespace duckdb {
 
+/// A value only accessible through Lock(), whose guard holds the mutex. A guard must not outlive its Mutex.
 template <typename T>
 class Mutex {
 public:

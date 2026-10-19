@@ -23,7 +23,7 @@ public:
 
 	ProtoIcebergCatalog &GetIcebergCatalog() const;
 
-	/// Whether a listing or table load has proven this namespace absent (deferred validation).
+	/// Returns whether a listing or table load has shown that this namespace doesn't exist.
 	bool IsNamespaceMissing() const {
 		return namespace_missing_.load(std::memory_order_acquire);
 	}
@@ -56,11 +56,8 @@ public:
 private:
 	using TableIndex = SignedStore<string, reference<ProtoIcebergTableEntry>>;
 
-	/// Holds this schema's table entries for the transaction.
-	///
-	/// Entries are append-only: a listing placeholder or a loaded table, once created, lives until the
-	/// transaction ends, because DuckDB may still reference it from an earlier scan. The index names the
-	/// current entry for each table, or records that the table is absent.
+	/// Owns this schema's table entries until the transaction ends, as DuckDB may still reference replaced ones. The
+	/// index names each table's current entry, or records that the table doesn't exist.
 	class TableRegistry {
 	public:
 		bool Listed() const {
@@ -90,10 +87,9 @@ private:
 		bool listed_ = false;
 	};
 
-	/// Loads a table from the REST catalog, resolves its scan info, and stores it in the registry.
-	/// Returns a pointer to the stored entry, or nullptr if the table doesn't exist.
-	optional_ptr<CatalogEntry> LoadFullTableEntry(ProtoIcebergTransaction &txn, const string &table_name,
-	                                              ClientContext &context, Mutex<TableRegistry>::Guard &tables);
+	/// Loads a table from the catalog and stores it, returning nullptr if the table doesn't exist.
+	optional_ptr<CatalogEntry> LoadTableEntry(ProtoIcebergTransaction &txn, const string &table_name,
+	                                          ClientContext &context, Mutex<TableRegistry>::Guard &tables);
 
 	std::atomic<bool> namespace_missing_ = false;
 	Mutex<TableRegistry> tables_;

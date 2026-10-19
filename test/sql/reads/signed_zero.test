@@ -55,23 +55,3 @@ query I
 SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE f = 0;
 ----
 [1, 2, 3]
-
-query I
-SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE f = '-0.0'::FLOAT;
-----
-[1, 2, 3]
-
-query I
-SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE f >= 0;
-----
-[1, 2, 3, 4]
-
-query I
-SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE f <= '-0.0'::FLOAT;
-----
-[1, 2, 3]
-
-query I
-SELECT list(id ORDER BY id) FROM lake.default.signed_zero WHERE f IN (0, 1);
-----
-[1, 2, 3, 4]

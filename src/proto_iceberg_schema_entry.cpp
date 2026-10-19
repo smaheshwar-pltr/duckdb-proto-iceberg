@@ -40,19 +40,17 @@ unique_ptr<ProtoIcebergTableEntry> CreateTableEntry(ProtoIcebergCatalog &ic_cata
 	return make_uniq<ProtoIcebergTableEntry>(ic_catalog, schema, *create_info, std::move(scan_info));
 }
 
-/// Resolves the scan mode, snapshot, and schema for a table at the transaction's point-in-time.
-/// Always returns a populated scan info, or throws TransactionException if no state is reachable as of txn start.
+/// Resolves the table's state as of the transaction's start, or throws TransactionException if it isn't reachable.
 shared_ptr<ProtoIcebergScanInfo> ResolveScanInfo(ClientContext &context, ProtoIcebergTransaction &txn,
                                                  std::shared_ptr<iceberg::Table> table, const string &namespace_name,
                                                  const string &table_name) {
-	// If the table has snapshots and was updated since our transaction started, pin to the txn-time snapshot (and to
-	// that snapshot's schema, though that might not have been the current schema at txn-time due to schema evolution).
+	// If the table changed since the transaction started, read the snapshot current at that point, with that
+	// snapshot's schema, which may be older than the table's schema at that point.
 	if (auto txn_start = iceberg::TimePointMsFromUnixMs(txn.GetStartTimestampMs());
 	    !table->snapshots().empty() && table->last_updated_ms() > txn_start) {
 		auto maybe_snapshot_id = iceberg::SnapshotUtil::OptionalSnapshotIdAsOfTime(*table, txn_start);
 		if (!maybe_snapshot_id.has_value()) {
-			// Table exists but has no snapshot reachable as of txn start. This can happen if the table was created
-			// after txn start, or even if the table was present at txn start but only gained snapshots after.
+			// No snapshot was current at the transaction's start, or it has since expired.
 			throw TransactionException(
 			    "Table '%s.%s' does not have a reachable state in this transaction; please restart your transaction",
 			    namespace_name, table_name);
@@ -66,8 +64,8 @@ shared_ptr<ProtoIcebergScanInfo> ResolveScanInfo(ClientContext &context, ProtoIc
 		return make_shared_ptr<ProtoIcebergScanInfo>(std::move(table), PinnedRead {snapshot_id}, std::move(schema));
 	}
 
-	// Snapshot-less, or unchanged since txn start — both read the current snapshot and schema. For a snapshot-less
-	// table, this holds even if its schema changed since txn start, since the original schema isn't easily recoverable.
+	// Unchanged or snapshot-less: read the current state. For a snapshot-less table, finding the schema current at
+	// the transaction's start would mean reading earlier metadata files.
 	auto schema = UnwrapOrThrow(table->schema(), "Failed to read schema for table '%s.%s'", namespace_name, table_name);
 	return make_shared_ptr<ProtoIcebergScanInfo>(std::move(table), CurrentRead {}, std::move(schema));
 }
@@ -80,20 +78,19 @@ ProtoIcebergTableEntry &ProtoIcebergSchemaEntry::TableRegistry::Store(unique_ptr
 	return stored;
 }
 
-optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIcebergTransaction &txn,
-                                                                       const string &table_name, ClientContext &context,
-                                                                       Mutex<TableRegistry>::Guard &tables) {
+optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadTableEntry(ProtoIcebergTransaction &txn,
+                                                                   const string &table_name, ClientContext &context,
+                                                                   Mutex<TableRegistry>::Guard &tables) {
 	auto &ic_catalog = GetIcebergCatalog();
 	DUCKDB_LOG_DEBUG(context, "proto_iceberg: LoadTable '%s.%s'", name, table_name);
 	auto table_result = (*ic_catalog.LockCatalog())->LoadTable(conversion::GetTableIdentifier(name, table_name));
 
-	// Return no entry on LoadTable NotFound exceptions; surface any other error as an exception.
+	// A missing table or namespace returns no entry; other errors throw.
 	if (!table_result.has_value()) {
 		const auto &[kind, message] = table_result.error();
 		if (bool namespace_missing = kind == iceberg::ErrorKind::kNoSuchNamespace;
 		    namespace_missing || kind == iceberg::ErrorKind::kNoSuchTable) {
 			if (namespace_missing) {
-				// Deferred namespace existence validation means we can reach table load without a present namespace.
 				MarkNamespaceMissing();
 			}
 			tables->MarkMissing(table_name);
@@ -102,7 +99,7 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIceb
 		throw IOException("Failed to load table '%s.%s': %s", name, table_name, message);
 	}
 
-	// LoadTable above initialized Arrow S3, so we now register S3 cleanup.
+	// LoadTable initialized Arrow S3, so S3 cleanup can now be registered.
 	ProtoIcebergCatalog::RegisterS3Finalizer();
 
 	auto scan_info = ResolveScanInfo(context, txn, std::move(table_result.value()), name, table_name);
@@ -178,20 +175,17 @@ void ProtoIcebergSchemaEntry::Scan(ClientContext &context, CatalogType type,
 		return;
 	}
 	if (IsNamespaceMissing()) {
-		// A prior LoadTable proved this namespace absent; nothing to list.
 		return;
 	}
 
 	auto &ic_catalog = GetIcebergCatalog();
 	auto tables = tables_.Lock();
 
-	// List tables at most once per namespace per transaction. Creates lightweight entries to avoid calling LoadTable
-	// for every table during SHOW ALL TABLES; LoadTable is deferred to LookupEntry.
+	// List once per transaction, storing placeholders so that listing doesn't load every table.
 	if (!tables->Listed()) {
 		DUCKDB_LOG_DEBUG(context, "proto_iceberg: ListTables in namespace '%s'", name);
 		auto result = (*ic_catalog.LockCatalog())->ListTables(conversion::GetNamespace(name));
 		if (!result.has_value() && result.error().kind == iceberg::ErrorKind::kNoSuchNamespace) {
-			// An optimistically-created schema that doesn't exist; nothing to list.
 			MarkNamespaceMissing();
 			return;
 		}
@@ -202,8 +196,7 @@ void ProtoIcebergSchemaEntry::Scan(ClientContext &context, CatalogType type,
 			if (std::holds_alternative<TableIndex::Unknown>(tables->Lookup(tbl_name))) {
 				auto create_info = make_uniq<CreateTableInfo>();
 				create_info->table = tbl_name;
-				// Use a "__"/UNKNOWN placeholder for not-yet-resolved tables to avoid a LoadTable per listed table, see
-				// https://github.com/duckdb/duckdb-iceberg/issues/515.
+				// Placeholders get a single UNKNOWN column, as in duckdb-iceberg (duckdb/duckdb-iceberg#515).
 				create_info->columns.AddColumn(ColumnDefinition("__", LogicalType::UNKNOWN));
 				tables->Store(make_uniq<ProtoIcebergTableEntry>(ic_catalog, *this, *create_info, nullptr));
 			}
@@ -238,18 +231,18 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LookupEntry(CatalogTransacti
 	        // Known absent: a negative cache, so DuckDB's fallback to other sources doesn't re-query the catalog.
 	        [](TableIndex::Negative &) -> optional_ptr<CatalogEntry> { return nullptr; },
 
-	        // Already stored, unless it's a listing placeholder that still needs a full LoadTable for its scan info.
+	        // Stored, but a listing placeholder must be loaded first.
 	        [&](const TableIndex::Positive &positive) -> optional_ptr<CatalogEntry> {
 		        auto &entry = positive.value->get();
 		        if (entry.NeedsLoad()) {
-			        return LoadFullTableEntry(txn, table_name, transaction.GetContext(), tables);
+			        return LoadTableEntry(txn, table_name, transaction.GetContext(), tables);
 		        }
 		        return &entry;
 	        },
 
 	        // Not yet looked up: load it from the catalog.
 	        [&](TableIndex::Unknown &) -> optional_ptr<CatalogEntry> {
-		        return LoadFullTableEntry(txn, table_name, transaction.GetContext(), tables);
+		        return LoadTableEntry(txn, table_name, transaction.GetContext(), tables);
 	        },
 	    },
 	    status);

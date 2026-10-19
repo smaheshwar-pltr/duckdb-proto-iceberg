@@ -316,14 +316,12 @@ TEST_CASE("IS NOT NULL resolves from schema", "[filter_translation]") {
 }
 
 TEST_CASE("unsupported comparison op widens to AlwaysTrue", "[filter_translation]") {
-	// COMPARE_DISTINCT_FROM is not one of the six comparisons we translate, so it hits the default branch and widens.
 	ConstantFilter filter(ExpressionType::COMPARE_DISTINCT_FROM, Value::INTEGER(7));
 	auto expr = TranslateOrWidenFilter(filter, MakeField("col"));
 	REQUIRE(expr->ToString() == "true");
 }
 
-TEST_CASE("out-of-bounds column_idx is skipped, not UB", "[filter_translation]") {
-	// A filter keyed at index 5 with only one field must be skipped (no fields[5] deref), but not the one at index 0.
+TEST_CASE("out-of-bounds column index is skipped", "[filter_translation]") {
 	TableFilterSet filter_set;
 	filter_set.PushFilter(ColumnIndex(0), make_uniq<ConstantFilter>(ExpressionType::COMPARE_EQUAL, Value::INTEGER(5)));
 	filter_set.PushFilter(ColumnIndex(5), make_uniq<ConstantFilter>(ExpressionType::COMPARE_EQUAL, Value::INTEGER(9)));
@@ -333,8 +331,7 @@ TEST_CASE("out-of-bounds column_idx is skipped, not UB", "[filter_translation]")
 	REQUIRE(expr->ToString() == "ref(name=\"id\") == 5");
 }
 
-TEST_CASE("all out-of-bounds column_idx widens to AlwaysTrue", "[filter_translation]") {
-	// Every filter is keyed past the end of the schema; all are skipped, leaving the AlwaysTrue identity.
+TEST_CASE("all out-of-bounds column indices widen to AlwaysTrue", "[filter_translation]") {
 	TableFilterSet filter_set;
 	filter_set.PushFilter(ColumnIndex(3), make_uniq<ConstantFilter>(ExpressionType::COMPARE_EQUAL, Value::INTEGER(1)));
 

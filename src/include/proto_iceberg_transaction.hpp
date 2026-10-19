@@ -15,14 +15,12 @@
 
 namespace duckdb {
 
-class ProtoIcebergCatalog;
-
 class ProtoIcebergTransaction : public Transaction {
 public:
 	ProtoIcebergTransaction(TransactionManager &manager, ClientContext &context);
 	~ProtoIcebergTransaction() override;
 
-	/// Gets the transaction start timestamp in milliseconds since Unix epoch.
+	/// Returns the transaction's start time in Unix milliseconds.
 	int64_t GetStartTimestampMs() const {
 		return start_timestamp_ms_;
 	}
@@ -31,20 +29,17 @@ public:
 		friend class ProtoIcebergTransaction;
 
 	public:
-		~LockedSchemas() = default;
 		LockedSchemas(LockedSchemas &&) = default;
-		LockedSchemas(const LockedSchemas &) = delete;
-		LockedSchemas &operator=(const LockedSchemas &) = delete;
 
 		optional_ptr<ProtoIcebergSchemaEntry> Lookup(std::string_view name) const;
 		ProtoIcebergSchemaEntry &Store(std::string_view name, unique_ptr<ProtoIcebergSchemaEntry> entry);
 
 		/// Returns whether schemas have been listed.
 		bool Listed() const;
-		/// Marks schemas absent from the listing as missing and completes this transaction's listing.
+		/// Records that schemas have been listed, marking those absent from the listing as missing.
 		void CompleteListing(const std::set<std::string_view> &listed_names);
 
-		/// Iterates present schema entries.
+		/// Visits schemas not known to be missing.
 		template <typename Fn>
 		void ForEach(Fn &&fn) {
 			for (auto &entry : guard_->schemas | std::views::values) {
@@ -64,10 +59,9 @@ public:
 		Mutex<SchemaState>::Guard guard_;
 	};
 
-	/// Acquires the schema store lock. Operations are performed through the returned handle.
+	/// Locks the transaction's schemas, which are accessed through the returned handle.
 	LockedSchemas LockSchemas();
 
-	/// Gets the ProtoIcebergTransaction from a ClientContext.
 	static ProtoIcebergTransaction &Get(ClientContext &context, AttachedDatabase &db);
 
 private:
@@ -77,7 +71,7 @@ private:
 
 class ProtoIcebergTransactionManager : public TransactionManager {
 public:
-	ProtoIcebergTransactionManager(AttachedDatabase &db_p, ProtoIcebergCatalog &catalog);
+	explicit ProtoIcebergTransactionManager(AttachedDatabase &db_p);
 	~ProtoIcebergTransactionManager() override;
 
 	Transaction &StartTransaction(ClientContext &context) override;
@@ -86,7 +80,6 @@ public:
 	void Checkpoint(ClientContext &context, bool force) override;
 
 private:
-	ProtoIcebergCatalog &catalog_;
 	Mutex<reference_map_t<Transaction, unique_ptr<ProtoIcebergTransaction>>> transactions_;
 };
 

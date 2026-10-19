@@ -28,12 +28,10 @@ using constants::kWarehouse;
 
 const string kUri = "uri";
 const string kHeaderAuthorization = "header.Authorization";
-/// Path to look up the user's S3 secret at: only secrets scoped to all S3 paths match it, not per-bucket ones or the
-/// per-table secrets this extension creates.
+/// Matches only S3 secrets scoped to all of S3, not per-bucket ones or the per-table secrets we create.
 const string kS3RootPath = "s3://";
 
-/// Reads DuckDB's S3 secret and converts it to iceberg-cpp S3 properties, so that
-/// the iceberg-cpp REST catalog then uses it as base / default IO properties.
+/// Returns DuckDB's S3 secret as iceberg-cpp S3 properties.
 unordered_map<string, string> ReadS3SecretAsIcebergProperties(ClientContext &context) {
 	auto &secret_manager = SecretManager::Get(context);
 	auto transaction = CatalogTransaction::GetSystemCatalogTransaction(context);
@@ -58,8 +56,7 @@ struct CatalogParams {
 	string default_schema;
 };
 
-/// Parses extension-specific ATTACH options into CatalogParams. DuckDB consumes its generic options (TYPE, READ_ONLY,
-/// ...) into AttachOptions fields and leaves the rest in AttachOptions::options.
+/// Parses our ATTACH options; DuckDB has already consumed its generic ones (TYPE, READ_ONLY, ...).
 CatalogParams ParseAttachOptions(const AttachInfo &info, const AttachOptions &options) {
 	CatalogParams params;
 	for (const auto &[key, value] : options.options) {
@@ -76,13 +73,13 @@ CatalogParams ParseAttachOptions(const AttachInfo &info, const AttachOptions &op
 		}
 	}
 	if (params.warehouse.empty() && !info.path.empty()) {
-		// For consistency with duckdb-iceberg, use the path as the warehouse, not the REST catalog URI.
+		// As in duckdb-iceberg, the path is the warehouse, not the catalog URI.
 		params.warehouse = info.path;
 	}
 	return params;
 }
 
-/// Fills in secret CatalogParams not set inline from an ICEBERG secret.
+/// Fills in the endpoint and token from an ICEBERG secret where ATTACH didn't set them.
 void MergeIcebergSecretParams(CatalogParams &params, ClientContext &context, const string &name) {
 	auto &secret_manager = SecretManager::Get(context);
 	auto transaction = CatalogTransaction::GetSystemCatalogTransaction(context);
@@ -125,8 +122,7 @@ unique_ptr<Catalog> ProtoIcebergCatalog::Attach(optional_ptr<StorageExtensionInf
 	}
 	StringUtil::RTrim(params.uri, "/");
 
-	// Create iceberg-cpp REST catalog properties. Include DuckDB S3 secrets here; iceberg-cpp will automatically
-	// fall back to using these as file IO properties if they are not vended by the REST catalog, as we desire.
+	// iceberg-cpp uses the S3 secret's properties as default file IO properties, overridden by any the catalog vends.
 	auto catalog_props = ReadS3SecretAsIcebergProperties(context);
 	catalog_props[kUri] = params.uri;
 	if (!params.warehouse.empty()) {

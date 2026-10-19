@@ -70,7 +70,6 @@ TEST_CASE("ForEachPositive skips negative entries and yields keys", "[signed_sto
 	std::vector<std::pair<std::string, int>> entries;
 	store.ForEachPositive([&](const std::string &k, int &v) { entries.emplace_back(k, v); });
 
-	// std::map iterates in key order, so no sort needed.
 	std::vector<std::pair<std::string, int>> expected = {{"a", 1}, {"c", 3}};
 	REQUIRE(entries == expected);
 }

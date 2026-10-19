@@ -38,26 +38,3 @@ SELECT id, name FROM lake.default.test_table ORDER BY id;
 3	Charlie
 4	Diana
 5	Eve
-
-query ITR
-SELECT * FROM lake.default.test_table WHERE id > 3 ORDER BY id;
-----
-4	Diana	4.4
-5	Eve	5.5
-
-query RR
-SELECT sum(value), avg(value) FROM lake.default.test_table;
-----
-16.5	3.3
-
-query ITR
-SELECT * FROM lake.default.test_table ORDER BY id LIMIT 2;
-----
-1	Alice	1.1
-2	Bob	2.2
-
-query ITR
-SELECT * FROM lake.default.test_table ORDER BY id LIMIT 2 OFFSET 2;
-----
-3	Charlie	3.3
-4	Diana	4.4

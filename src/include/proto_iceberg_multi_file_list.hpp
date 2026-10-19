@@ -39,7 +39,7 @@ public:
 	                                                const vector<column_t> &column_ids,
 	                                                TableFilterSet &filters) const override;
 
-	/// Returns the resolved scan schema (the pinned snapshot's schema for a pinned read, else the current schema).
+	/// Returns the schema the scan reads with: the pinned snapshot's, or the table's current one.
 	const std::shared_ptr<iceberg::Schema> &GetScanSchema() const;
 
 protected:

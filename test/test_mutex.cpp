@@ -46,9 +46,8 @@ TEST_CASE("Moving a Guard transfers the lock", "[mutex]") {
 		auto g1 = m.Lock();
 		auto g2 = std::move(g1);
 		REQUIRE(*g2 == 10);
-		// g1 is moved-from; both g1 and g2 are destroyed here.
 	}
-	// Must not deadlock — the lock was transferred to g2 and released on its destruction.
+	// The lock moved to g2 and was released with it, so this doesn't deadlock.
 	auto g3 = m.Lock();
 	REQUIRE(*g3 == 10);
 }

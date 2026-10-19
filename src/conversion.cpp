@@ -20,7 +20,7 @@
 namespace duckdb::conversion {
 namespace {
 
-void PopulateChildFieldIds(MultiFileColumnDefinition &col_def, const iceberg::Type &type) {
+void AddChildColumns(MultiFileColumnDefinition &col_def, const iceberg::Type &type) {
 	switch (type.type_id()) {
 	case iceberg::TypeId::kStruct: {
 		const auto &struct_type = static_cast<const iceberg::StructType &>(type);
@@ -51,8 +51,9 @@ MultiFileColumnDefinition BuildColumnDefinition(const iceberg::SchemaField &fiel
 	auto duckdb_type = MapIcebergType(*field.type());
 	MultiFileColumnDefinition col_def(std::string(field.name()), duckdb_type);
 	col_def.identifier = Value::INTEGER(field.field_id());
+	// Field-ID mapping needs a default for fields missing from a data file, which read back as NULL.
 	col_def.default_expression = make_uniq<ConstantExpression>(Value(std::move(duckdb_type)));
-	PopulateChildFieldIds(col_def, *field.type());
+	AddChildColumns(col_def, *field.type());
 	return col_def;
 }
 
@@ -110,7 +111,7 @@ LogicalType MapIcebergType(const iceberg::Type &type) {
 		return LogicalType::STRUCT(children);
 	}
 	default:
-		// TODO: Iceberg V3 types, see https://github.com/duckdb/duckdb-iceberg/issues/1019
+		// TODO: Iceberg v3 types (duckdb/duckdb-iceberg#1019).
 		throw InvalidInputException("Unsupported Iceberg type: %s", type.ToString());
 	}
 }
@@ -136,19 +137,17 @@ std::optional<iceberg::Literal> ConvertValueToLiteral(const Value &value) {
 		return iceberg::Literal::Double(DoubleValue::Get(value));
 	case LogicalTypeId::VARCHAR:
 		return iceberg::Literal::String(StringValue::Get(value));
+	// DuckDB's date, time and timestamp representations match Iceberg's.
 	case LogicalTypeId::DATE:
-		// DuckDB date_t stores days since epoch as int32_t (same as Iceberg)
 		return iceberg::Literal::Date(DateValue::Get(value).days);
 	case LogicalTypeId::TIME:
-		// DuckDB dtime_t stores microseconds from midnight as int64_t (same as Iceberg)
 		return iceberg::Literal::Time(TimeValue::Get(value).micros);
 	case LogicalTypeId::TIMESTAMP:
-		// DuckDB timestamp_t stores microseconds since epoch as int64_t (same as Iceberg)
 		return iceberg::Literal::Timestamp(TimestampValue::Get(value).value);
 	case LogicalTypeId::TIMESTAMP_TZ:
 		return iceberg::Literal::TimestampTz(TimestampTZValue::Get(value).value);
 	case LogicalTypeId::DECIMAL: {
-		// M.B. IntegralValue::Get returns the raw unscaled integer
+		// IntegralValue::Get returns the unscaled integer.
 		auto raw = IntegralValue::Get(value);
 		auto val128 = (static_cast<int128_t>(raw.upper) << 64) | raw.lower;
 		auto precision = DecimalType::GetWidth(value.type());
@@ -235,13 +234,8 @@ std::shared_ptr<iceberg::Expression> TranslateConjunctionOr(const ConjunctionOrF
 
 } // namespace
 
-// Widened results and sub-results must not be negated to preserve the invariant. AlwaysTrue negates to
-// AlwaysFalse, which would silently exclude all files. DuckDB normalizes negation before creating TableFilters (e.g.
-// NOT x>5 becomes x<=5), so wrapped NOT filters do not arise.
-//
-// We create filter expressions using column names from ProtoIcebergScanInfo::schema. iceberg-cpp's Binder::Bind()
-// resolves these names against its own derived schema to obtain field IDs. The two schemas must be the same; such is
-// the precondition of ProtoIcebergScanInfo::schema for this very reason.
+// Never negate a translation: widened parts are AlwaysTrue, which negates to AlwaysFalse. DuckDB rewrites NOT before
+// building TableFilters, so there are no NOT filters to translate.
 std::shared_ptr<iceberg::Expression> TranslateOrWidenFilters(const TableFilterSet &filters,
                                                              const iceberg::Schema &schema) {
 	auto fields = schema.fields();

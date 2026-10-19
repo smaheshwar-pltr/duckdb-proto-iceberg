@@ -1,8 +1,5 @@
-# DuckDB v1.5.1's profiling_utils.hpp does not compile in a C++23 translation unit under libc++
-# (Apple's standard library): QueryMetrics resets a unique_ptr<ActiveTimer> in an inline member
-# function before ActiveTimer is complete, and libc++ instantiates the constexpr unique_ptr members
-# eagerly in C++23. The patch moves those member functions below ActiveTimer's definition. It is
-# applied once to the DuckDB tree being configured.
+# DuckDB v1.5.1's profiling_utils.hpp doesn't compile as C++23 under libc++, which instantiates unique_ptr members
+# eagerly; the patch moves the functions using an incomplete ActiveTimer below its definition.
 
 if(APPLE)
     block()

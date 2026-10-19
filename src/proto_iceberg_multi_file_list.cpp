@@ -53,8 +53,7 @@ std::optional<TableFilterSet> BuildTableFilterSet(ClientContext &context, const 
 	return filter_set.filters.empty() ? std::nullopt : std::optional(std::move(filter_set));
 }
 
-/// Whether adding the filters to scan planning can prune data files. Untranslatable filters (e.g. dynamic Top-N
-/// filters) widen to AlwaysTrue, so re-planning with them would re-read manifests only to plan the same files.
+/// Returns whether planning with the filters can prune files; if not, re-planning would only re-read manifests.
 bool CanPrunePlanning(const TableFilterSet &filters, const iceberg::Schema &schema) {
 	return conversion::TranslateOrWidenFilters(filters, schema)->op() != iceberg::Expression::Operation::kTrue;
 }
@@ -73,6 +72,7 @@ const std::shared_ptr<iceberg::Schema> &ProtoIcebergMultiFileList::GetScanSchema
 iceberg::Result<ProtoIcebergScanPlan> ProtoIcebergMultiFileList::PlanFilesImpl(const ProtoIcebergScanInfo &info,
                                                                                const TableFilterSet &filters,
                                                                                const ClientContext &context) {
+	// ICEBERG_ASSIGN_OR_RAISE names Error unqualified.
 	using iceberg::Error;
 
 	ICEBERG_ASSIGN_OR_RAISE(auto scan_builder, info.table->NewScan());
@@ -104,17 +104,15 @@ iceberg::Result<ProtoIcebergScanPlan> ProtoIcebergMultiFileList::PlanFilesImpl(c
 		plan.data_files.push_back(task->data_file());
 	}
 
-	if (Logger::Get(context).ShouldLog(DefaultLogType::NAME, LogLevel::LOG_DEBUG)) {
-		DUCKDB_LOG_DEBUG(context, "proto_iceberg: planned %zu data file(s) for '%s' with filter: %s",
-		                 plan.data_files.size(), info.table->name().ToString(), filter ? filter->ToString() : "{}");
-	}
+	DUCKDB_LOG_DEBUG(context, "proto_iceberg: planned %zu data file(s) for '%s' with filter: %s",
+	                 plan.data_files.size(), info.table->name().ToString(), filter ? filter->ToString() : "{}");
 
 	return plan;
 }
 
 const ProtoIcebergScanPlan &ProtoIcebergMultiFileList::PlanFiles() const {
 	auto result = plan_.Get(*scan_info_, table_filters_, context_);
-	// Surface a not-implemented-error (from either iceberg-cpp or us) as a more descriptive NotImplementedException.
+	// Report unsupported features as NotImplementedException rather than IOException.
 	if (!result.has_value() && result.error().kind == iceberg::ErrorKind::kNotImplemented) {
 		throw NotImplementedException(result.error().message);
 	}
@@ -144,7 +142,6 @@ idx_t ProtoIcebergMultiFileList::GetTotalFileCount() const {
 
 unique_ptr<NodeStatistics> ProtoIcebergMultiFileList::GetCardinality(ClientContext &) const {
 	auto &[_, total_record_count] = PlanFiles();
-	// Report the total record count across all data files as both the estimate and maximum cardinality.
 	return make_uniq<NodeStatistics>(total_record_count, total_record_count);
 }
 

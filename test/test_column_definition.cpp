@@ -17,7 +17,6 @@ TEST_CASE("primitive field", "[column_definition]") {
 	REQUIRE(col.type == LogicalType::INTEGER);
 	REQUIRE(col.identifier == Value::INTEGER(7));
 	REQUIRE(col.children.empty());
-	// default_expression is load-bearing: a field absent from a data file reads back as its Iceberg default.
 	REQUIRE(col.default_expression != nullptr);
 }
 
@@ -118,24 +117,20 @@ TEST_CASE("nested STRUCT(LIST(STRUCT))", "[column_definition]") {
 	auto field = iceberg::SchemaField::MakeOptional(1, "data", outer_struct);
 	auto col = BuildColumnDefinition(field);
 
-	// top level
 	REQUIRE(col.name == "data");
 	REQUIRE(col.identifier == Value::INTEGER(1));
 	REQUIRE(col.children.size() == 1);
 
-	// items (list)
 	auto &items = col.children[0];
 	REQUIRE(items.name == "items");
 	REQUIRE(items.identifier == Value::INTEGER(10));
 	REQUIRE(items.children.size() == 1);
 
-	// element (struct)
 	auto &elem = items.children[0];
 	REQUIRE(elem.name == "element");
 	REQUIRE(elem.identifier == Value::INTEGER(50));
 	REQUIRE(elem.children.size() == 2);
 
-	// inner struct fields
 	REQUIRE(elem.children[0].name == "x");
 	REQUIRE(elem.children[0].type == LogicalType::INTEGER);
 	REQUIRE(elem.children[0].identifier == Value::INTEGER(100));
@@ -173,12 +168,10 @@ TEST_CASE("map with struct value children", "[column_definition]") {
 	REQUIRE(col.identifier == Value::INTEGER(2));
 	REQUIRE(col.children.size() == 2);
 
-	// key
 	REQUIRE(col.children[0].name == "key");
 	REQUIRE(col.children[0].identifier == Value::INTEGER(60));
 	REQUIRE(col.children[0].children.empty());
 
-	// value (struct)
 	auto &val_child = col.children[1];
 	REQUIRE(val_child.name == "value");
 	REQUIRE(val_child.identifier == Value::INTEGER(61));
@@ -207,13 +200,11 @@ TEST_CASE("nested lists", "[column_definition]") {
 	REQUIRE(col.identifier == Value::INTEGER(6));
 	REQUIRE(col.children.size() == 1);
 
-	// outer element (inner list)
 	auto &outer = col.children[0];
 	REQUIRE(outer.name == "element");
 	REQUIRE(outer.identifier == Value::INTEGER(70));
 	REQUIRE(outer.children.size() == 1);
 
-	// inner element (int)
 	auto &inner = outer.children[0];
 	REQUIRE(inner.name == "element");
 	REQUIRE(inner.identifier == Value::INTEGER(80));

@@ -68,7 +68,8 @@ add_executable(proto_iceberg_unittest EXCLUDE_FROM_ALL
     test/test_mutex.cpp
     test/test_unwrap.cpp
     test/test_s3_conversion.cpp
-    test/test_table_entry_retention.cpp)
+    test/test_table_entry_retention.cpp
+    test/test_negative_cache.cpp)
 target_include_directories(proto_iceberg_unittest PRIVATE
     src/include
     test

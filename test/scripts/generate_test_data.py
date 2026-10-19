@@ -99,7 +99,7 @@ def create_basic_table(catalog):
     """Basic types: int, string, double. 5 rows."""
     schema = Schema(
         NestedField(field_id=1, name="id", field_type=IntegerType(), required=False),
-        NestedField(field_id=2, name="name", field_type=StringType(), required=False),
+        NestedField(field_id=2, name="name", field_type=StringType(), required=False, doc="Display name"),
         NestedField(field_id=3, name="value", field_type=DoubleType(), required=False),
     )
 

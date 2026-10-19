@@ -9,6 +9,7 @@
 #include "duckdb/main/secret/secret.hpp"
 
 #include "iceberg/catalog/rest/catalog_properties.h"
+#include "iceberg/catalog/rest/rest_catalog.h"
 
 #include <unordered_map>
 

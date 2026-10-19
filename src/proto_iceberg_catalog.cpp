@@ -14,10 +14,9 @@
 namespace duckdb {
 
 ProtoIcebergCatalog::ProtoIcebergCatalog(AttachedDatabase &db_p, string catalog_uri,
-                                         std::shared_ptr<iceberg::rest::RestCatalog> rest_catalog,
-                                         string default_schema)
+                                         std::shared_ptr<iceberg::Catalog> catalog, string default_schema)
     : Catalog(db_p), catalog_uri_(std::move(catalog_uri)), default_schema_(std::move(default_schema)),
-      rest_catalog_(std::in_place, std::move(rest_catalog)) {
+      catalog_(std::in_place, std::move(catalog)) {
 }
 
 void ProtoIcebergCatalog::RegisterS3Finalizer() {
@@ -54,7 +53,7 @@ void ProtoIcebergCatalog::ScanSchemas(ClientContext &context, std::function<void
 
 	if (!schemas.Listed()) {
 		DUCKDB_LOG_DEBUG(context, "proto_iceberg: ListNamespaces at root");
-		auto namespaces = UnwrapOrThrow((*LockRestCatalog())->ListNamespaces({}), "Failed to list namespaces");
+		auto namespaces = UnwrapOrThrow((*LockCatalog())->ListNamespaces({}), "Failed to list namespaces");
 
 		schemas.MarkListed();
 

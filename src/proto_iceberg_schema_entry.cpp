@@ -86,7 +86,7 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LoadFullTableEntry(ProtoIceb
 
 	auto &ic_catalog = GetIcebergCatalog();
 	DUCKDB_LOG_DEBUG(context, "proto_iceberg: LoadTable '%s.%s'", name, table_name);
-	auto table_result = (*ic_catalog.LockRestCatalog())->LoadTable(conversion::GetTableIdentifier(name, table_name));
+	auto table_result = (*ic_catalog.LockCatalog())->LoadTable(conversion::GetTableIdentifier(name, table_name));
 
 	// Return no entry on LoadTable NotFound exceptions; surface any other error as an exception.
 	if (!table_result.has_value()) {
@@ -192,7 +192,7 @@ void ProtoIcebergSchemaEntry::Scan(ClientContext &context, CatalogType type,
 	// for every table during SHOW ALL TABLES; LoadTable is deferred to LookupEntry.
 	if (!tables->listed) {
 		DUCKDB_LOG_DEBUG(context, "proto_iceberg: ListTables in namespace '%s'", name);
-		auto result = (*ic_catalog.LockRestCatalog())->ListTables(conversion::GetNamespace(name));
+		auto result = (*ic_catalog.LockCatalog())->ListTables(conversion::GetNamespace(name));
 		if (!result.has_value() && result.error().kind == iceberg::ErrorKind::kNoSuchNamespace) {
 			// An optimistically-created schema that doesn't exist; nothing to list.
 			MarkNamespaceNotFound();

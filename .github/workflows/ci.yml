@@ -21,6 +21,9 @@ jobs:
       CC: gcc-14
       CXX: g++-14
       GEN: ninja
+      # Run the tests under ASan with a release build. TODO: a debug build doesn't fit CI disk.
+      EXT_FLAGS: -DRELEASE_SANITIZER=1
+      ASAN_OPTIONS: detect_leaks=0
     steps:
       - uses: actions/checkout@v7
         with:

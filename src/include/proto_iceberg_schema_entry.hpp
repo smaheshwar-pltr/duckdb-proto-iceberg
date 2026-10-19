@@ -4,9 +4,11 @@
 #include "mutex.hpp"
 
 #include "duckdb/catalog/catalog_entry/schema_catalog_entry.hpp"
+#include "duckdb/common/helper.hpp"
 
 #include <atomic>
 #include <memory>
+#include <utility>
 
 namespace duckdb {
 
@@ -21,27 +23,14 @@ public:
 
 	ProtoIcebergCatalog &GetIcebergCatalog() const;
 
-	/// Returns whether the catalog has reported the namespace as missing. Deferred namespace validation means a schema
-	/// is optimistically marked as present until a LoadTable marks it as absent.
-	bool NamespaceNotFound() const {
-		return namespace_not_found_.load(std::memory_order_acquire);
+	/// Whether a listing or table load has proven this namespace absent (deferred validation).
+	bool IsNamespaceMissing() const {
+		return namespace_missing_.load(std::memory_order_acquire);
 	}
 
-	/// Marks this namespace as absent in the catalog (deferred validation from a failed LoadTable).
-	void MarkNamespaceNotFound() {
-		namespace_not_found_.store(true, std::memory_order_release);
+	void MarkNamespaceMissing() {
+		namespace_missing_.store(true, std::memory_order_release);
 	}
-
-	using TableStore = SignedStore<string, unique_ptr<ProtoIcebergTableEntry>>;
-
-	struct TableState {
-		TableStore store;
-		bool listed = false;
-		/// Listing entries a later load replaced.
-		///
-		/// Like DuckDB's own catalogs, we don't free entries mid-transaction, as DuckDB may still reference them.
-		vector<unique_ptr<ProtoIcebergTableEntry>> replaced;
-	};
 
 	optional_ptr<CatalogEntry> CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) override;
 	optional_ptr<CatalogEntry> CreateFunction(CatalogTransaction transaction, CreateFunctionInfo &info) override;
@@ -65,13 +54,49 @@ public:
 	optional_ptr<CatalogEntry> LookupEntry(CatalogTransaction transaction, const EntryLookupInfo &lookup_info) override;
 
 private:
-	/// Loads a table from the REST catalog, resolves its scan info, and stores in the table state.
+	using TableIndex = SignedStore<string, reference<ProtoIcebergTableEntry>>;
+
+	/// Holds this schema's table entries for the transaction.
+	///
+	/// Entries are append-only: a listing placeholder or a loaded table, once created, lives until the
+	/// transaction ends, because DuckDB may still reference it from an earlier scan. The index names the
+	/// current entry for each table, or records that the table is absent.
+	class TableRegistry {
+	public:
+		bool Listed() const {
+			return listed_;
+		}
+		void MarkListed() {
+			listed_ = true;
+		}
+
+		TableIndex::LookupResult Lookup(const string &name) {
+			return index_.Lookup(name);
+		}
+
+		template <typename Fn>
+		void ForEach(Fn &&fn) {
+			index_.ForEachPositive(std::forward<Fn>(fn));
+		}
+
+		ProtoIcebergTableEntry &Store(unique_ptr<ProtoIcebergTableEntry> entry);
+		void MarkMissing(const string &name) {
+			index_.PutMiss(name);
+		}
+
+	private:
+		vector<unique_ptr<ProtoIcebergTableEntry>> entries_;
+		TableIndex index_;
+		bool listed_ = false;
+	};
+
+	/// Loads a table from the REST catalog, resolves its scan info, and stores it in the registry.
 	/// Returns a pointer to the stored entry, or nullptr if the table doesn't exist.
 	optional_ptr<CatalogEntry> LoadFullTableEntry(ProtoIcebergTransaction &txn, const string &table_name,
-	                                              ClientContext &context, Mutex<TableState>::Guard &tables);
+	                                              ClientContext &context, Mutex<TableRegistry>::Guard &tables);
 
-	std::atomic<bool> namespace_not_found_ = false;
-	Mutex<TableState> tables_;
+	std::atomic<bool> namespace_missing_ = false;
+	Mutex<TableRegistry> tables_;
 };
 
 } // namespace duckdb

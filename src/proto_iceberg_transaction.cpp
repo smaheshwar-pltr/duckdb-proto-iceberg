@@ -43,7 +43,14 @@ bool ProtoIcebergTransaction::LockedSchemas::Listed() const {
 	return guard_->listed;
 }
 
-void ProtoIcebergTransaction::LockedSchemas::MarkListed() {
+void ProtoIcebergTransaction::LockedSchemas::CompleteListing(const std::set<std::string_view> &listed_names) {
+	// The listing is authoritative for the rest of the transaction, so optimistically-created schemas it doesn't
+	// contain don't exist.
+	for (auto &entry : guard_->schemas | std::views::values) {
+		if (!listed_names.contains(entry->name)) {
+			entry->MarkNamespaceMissing();
+		}
+	}
 	guard_->listed = true;
 }
 

@@ -3,7 +3,7 @@
 /// Every entry is in one of three states:
 ///   Unknown  — never looked up
 ///   Negative — looked up and confirmed absent
-///   Positive — looked up and found; the store owns the entry
+///   Positive — looked up and found
 ///
 /// Not thread-safe.
 

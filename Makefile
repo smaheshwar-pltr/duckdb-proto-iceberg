@@ -5,6 +5,9 @@ EXT_CONFIG=${PROJ_DIR}extension_config.cmake
 
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
+# Runtime options for sanitized builds (`make debug`, or EXT_FLAGS=-DFORCE_ASSERT=1); the environment overrides them.
+export UBSAN_OPTIONS ?= print_stacktrace=1
+
 .PHONY: unittest_release unittest_debug integration_test_release integration_test_debug
 
 # Catch2 unit tests. Run `make release` or `make debug` first.

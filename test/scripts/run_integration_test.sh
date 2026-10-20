@@ -8,8 +8,6 @@ BUILD_TYPE="${BUILD_TYPE:-debug}"
 UNITTEST="${UNITTEST:-${REPO_DIR}/build/${BUILD_TYPE}/test/unittest}"
 COMPOSE=(docker compose -f "${REPO_DIR}/test/docker/docker-compose.yml")
 
-export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_container_overflow=0}"
-
 if [[ ! -x "${UNITTEST}" ]]; then
     echo "error: DuckDB test runner not found at ${UNITTEST}; run 'make ${BUILD_TYPE}' first" >&2
     exit 1

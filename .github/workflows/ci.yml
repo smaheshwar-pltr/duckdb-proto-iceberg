@@ -23,8 +23,6 @@ jobs:
       GEN: ninja
       # Run the tests with assertions, ASan and UBSan in a release build. TODO: a debug build doesn't fit CI disk.
       EXT_FLAGS: -DFORCE_ASSERT=1
-      ASAN_OPTIONS: detect_leaks=0
-      UBSAN_OPTIONS: print_stacktrace=1
     steps:
       - uses: actions/checkout@v7
         with:

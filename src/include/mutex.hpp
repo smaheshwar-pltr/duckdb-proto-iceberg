@@ -2,7 +2,6 @@
 
 #include "duckdb/common/assert.hpp"
 #include "duckdb/common/mutex.hpp"
-#include <memory>
 #include <utility>
 
 namespace duckdb {
@@ -32,14 +31,14 @@ private:
 			return data_;
 		}
 		U *operator->() {
-			return std::addressof(operator*());
+			return &operator*();
 		}
 		const U &operator*() const {
 			D_ASSERT(lock_.owns_lock());
 			return data_;
 		}
 		const U *operator->() const {
-			return std::addressof(operator*());
+			return &operator*();
 		}
 
 	private:

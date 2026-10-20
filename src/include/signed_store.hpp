@@ -9,23 +9,27 @@ namespace duckdb {
 template <typename Key, typename Value>
 class SignedStore {
 public:
-	struct Unknown {};
-	struct Negative {};
-	struct Positive {
-		// Points into the store, so it's only valid until the next mutation.
-		Value *value;
-	};
-	using LookupResult = std::variant<Unknown, Negative, Positive>;
+	/// An entry's state, as returned by Lookup.
+	struct LookupResult {
+		struct Unknown {};
+		struct Negative {};
+		struct Positive {
+			// Points into the store, so it's only valid until the next mutation.
+			Value *value;
+		};
 
-	[[nodiscard]] LookupResult Lookup(const Key &key) {
+		using Variant = std::variant<Unknown, Negative, Positive>;
+	};
+
+	[[nodiscard]] typename LookupResult::Variant Lookup(const Key &key) {
 		auto it = entries_.find(key);
 		if (it == entries_.end()) {
-			return Unknown {};
+			return typename LookupResult::Unknown {};
 		}
 		if (auto *val = std::get_if<Value>(&it->second)) {
-			return Positive {val};
+			return typename LookupResult::Positive {val};
 		}
-		return Negative {};
+		return typename LookupResult::Negative {};
 	}
 
 	/// Stores a positive entry, replacing any previous one.

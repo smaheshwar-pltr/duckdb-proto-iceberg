@@ -7,7 +7,18 @@
 
 namespace duckdb {
 
-/// A value only accessible through Lock(), whose guard holds the mutex. A guard must not outlive its Mutex.
+/// A value that can only be accessed while holding its mutex, similar to Rust's std::sync::Mutex.
+///
+/// Lock() acquires the mutex and returns a guard that dereferences to the value. The mutex is released when the guard
+/// is destroyed. Locking a const Mutex returns a ConstGuard, which gives read-only access. A guard can be moved, for
+/// example to return it from a function, and the lock moves with it.
+///
+///   Mutex<vector<int>> values;
+///   values.Lock()->push_back(1); // locked for this statement only
+///   auto guard = values.Lock();  // locked until guard is destroyed
+///   guard->push_back(2);
+///
+/// A guard must not outlive its Mutex, and references to the value must not outlive the guard they came from.
 template <typename T>
 class Mutex {
 private:

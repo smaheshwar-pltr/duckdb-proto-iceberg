@@ -2,7 +2,7 @@
 
 An experimental C++23 DuckDB extension that reads [Apache Iceberg](https://iceberg.apache.org/) tables using [Apache Iceberg C++ (iceberg-cpp)](https://github.com/apache/iceberg-cpp). It supports Iceberg REST catalogs with tables in S3, including vended credentials.
 
-This project is largely inspired by [duckdb-iceberg](https://github.com/duckdb/duckdb-iceberg). While that extension implements its own Iceberg client, this project aims to delegate to Iceberg's C++ implementation instead.
+This project is largely inspired by [duckdb-iceberg](https://github.com/duckdb/duckdb-iceberg). While that extension implements its own Iceberg client, this project aims to delegate to Iceberg's C++ implementation instead. See https://github.com/duckdb/duckdb-iceberg/discussions/1699 for further discussion and motivation.
 
 See [DuckDB's extension template README](https://github.com/duckdb/extension-template?tab=readme-ov-file#duckdb-extension-template) for more details.
 

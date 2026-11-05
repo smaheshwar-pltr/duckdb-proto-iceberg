@@ -61,13 +61,14 @@ shared_ptr<ProtoIcebergScanInfo> ResolveScanInfo(ClientContext &context, ProtoIc
 		auto schema = UnwrapOrThrow(iceberg::SnapshotUtil::SchemaFor(*table, snapshot_id),
 		                            "Failed to resolve schema for snapshot %lld of table '%s.%s'", snapshot_id,
 		                            namespace_name, table_name);
-		return make_shared_ptr<ProtoIcebergScanInfo>(std::move(table), PinnedRead {snapshot_id}, std::move(schema));
+		return make_shared_ptr<ProtoIcebergScanInfo>(std::move(table), ScanMode::PinnedRead {snapshot_id},
+		                                             std::move(schema));
 	}
 
 	// Unchanged or snapshot-less: read the current state. For a snapshot-less table, finding the schema current at
 	// the transaction's start would mean reading earlier metadata files.
 	auto schema = UnwrapOrThrow(table->schema(), "Failed to read schema for table '%s.%s'", namespace_name, table_name);
-	return make_shared_ptr<ProtoIcebergScanInfo>(std::move(table), CurrentRead {}, std::move(schema));
+	return make_shared_ptr<ProtoIcebergScanInfo>(std::move(table), ScanMode::CurrentRead {}, std::move(schema));
 }
 
 } // namespace
@@ -193,7 +194,7 @@ void ProtoIcebergSchemaEntry::Scan(ClientContext &context, CatalogType type,
 
 		tables->MarkListed();
 		for (const auto &[_, tbl_name] : children) {
-			if (std::holds_alternative<TableIndex::Unknown>(tables->Lookup(tbl_name))) {
+			if (std::holds_alternative<TableIndex::LookupResult::Unknown>(tables->Lookup(tbl_name))) {
 				auto create_info = make_uniq<CreateTableInfo>();
 				create_info->table = tbl_name;
 				// Placeholders get a single UNKNOWN column, as in duckdb-iceberg (duckdb/duckdb-iceberg#515).
@@ -229,10 +230,10 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LookupEntry(CatalogTransacti
 	return std::visit(
 	    Overloaded {
 	        // Known absent: a negative cache, so DuckDB's fallback to other sources doesn't re-query the catalog.
-	        [](TableIndex::Negative &) -> optional_ptr<CatalogEntry> { return nullptr; },
+	        [](const TableIndex::LookupResult::Negative &) -> optional_ptr<CatalogEntry> { return nullptr; },
 
 	        // Stored, but a listing placeholder must be loaded first.
-	        [&](const TableIndex::Positive &positive) -> optional_ptr<CatalogEntry> {
+	        [&](const TableIndex::LookupResult::Positive &positive) -> optional_ptr<CatalogEntry> {
 		        auto &entry = positive.value->get();
 		        if (entry.NeedsLoad()) {
 			        return LoadTableEntry(txn, table_name, transaction.GetContext(), tables);
@@ -241,7 +242,7 @@ optional_ptr<CatalogEntry> ProtoIcebergSchemaEntry::LookupEntry(CatalogTransacti
 	        },
 
 	        // Not yet looked up: load it from the catalog.
-	        [&](TableIndex::Unknown &) -> optional_ptr<CatalogEntry> {
+	        [&](const TableIndex::LookupResult::Unknown &) -> optional_ptr<CatalogEntry> {
 		        return LoadTableEntry(txn, table_name, transaction.GetContext(), tables);
 	        },
 	    },

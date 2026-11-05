@@ -76,7 +76,7 @@ iceberg::Result<ProtoIcebergScanPlan> ProtoIcebergMultiFileList::PlanFilesImpl(c
 	using iceberg::Error;
 
 	ICEBERG_ASSIGN_OR_RAISE(auto scan_builder, info.table->NewScan());
-	if (auto *pinned = std::get_if<PinnedRead>(&info.mode)) {
+	if (auto *pinned = std::get_if<ScanMode::PinnedRead>(&info.mode)) {
 		scan_builder->UseSnapshot(pinned->snapshot_id);
 	}
 	std::shared_ptr<iceberg::Expression> filter {};

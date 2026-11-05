@@ -8,7 +8,7 @@ using namespace duckdb;
 TEST_CASE("unknown key returns Unknown", "[signed_store]") {
 	SignedStore<std::string, int> store;
 	auto result = store.Lookup("foo");
-	REQUIRE(std::holds_alternative<SignedStore<std::string, int>::Unknown>(result));
+	REQUIRE(std::holds_alternative<SignedStore<std::string, int>::LookupResult::Unknown>(result));
 }
 
 TEST_CASE("inserted key returns Positive", "[signed_store]") {
@@ -17,8 +17,8 @@ TEST_CASE("inserted key returns Positive", "[signed_store]") {
 	REQUIRE(val == 42);
 
 	auto result = store.Lookup("foo");
-	REQUIRE(std::holds_alternative<SignedStore<std::string, int>::Positive>(result));
-	auto &positive = std::get<SignedStore<std::string, int>::Positive>(result);
+	REQUIRE(std::holds_alternative<SignedStore<std::string, int>::LookupResult::Positive>(result));
+	auto &positive = std::get<SignedStore<std::string, int>::LookupResult::Positive>(result);
 	REQUIRE(*positive.value == 42);
 }
 
@@ -27,7 +27,7 @@ TEST_CASE("missed key returns Negative", "[signed_store]") {
 	store.PutMiss("foo");
 
 	auto result = store.Lookup("foo");
-	REQUIRE(std::holds_alternative<SignedStore<std::string, int>::Negative>(result));
+	REQUIRE(std::holds_alternative<SignedStore<std::string, int>::LookupResult::Negative>(result));
 }
 
 TEST_CASE("PutMiss overwrites positive entry", "[signed_store]") {
@@ -36,7 +36,7 @@ TEST_CASE("PutMiss overwrites positive entry", "[signed_store]") {
 	store.PutMiss("foo");
 
 	auto result = store.Lookup("foo");
-	REQUIRE(std::holds_alternative<SignedStore<std::string, int>::Negative>(result));
+	REQUIRE(std::holds_alternative<SignedStore<std::string, int>::LookupResult::Negative>(result));
 }
 
 TEST_CASE("Put overwrites existing value", "[signed_store]") {
@@ -46,7 +46,7 @@ TEST_CASE("Put overwrites existing value", "[signed_store]") {
 	REQUIRE(val == 2);
 
 	auto result = store.Lookup("foo");
-	auto &positive = std::get<SignedStore<std::string, int>::Positive>(result);
+	auto &positive = std::get<SignedStore<std::string, int>::LookupResult::Positive>(result);
 	REQUIRE(*positive.value == 2);
 }
 
@@ -58,7 +58,7 @@ TEST_CASE("Put promotes Negative to Positive", "[signed_store]") {
 	REQUIRE(val == 7);
 
 	auto result = store.Lookup("foo");
-	REQUIRE(std::holds_alternative<SignedStore<std::string, int>::Positive>(result));
+	REQUIRE(std::holds_alternative<SignedStore<std::string, int>::LookupResult::Positive>(result));
 }
 
 TEST_CASE("ForEachPositive skips negative entries and yields keys", "[signed_store]") {

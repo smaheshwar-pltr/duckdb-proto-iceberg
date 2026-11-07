@@ -1,5 +1,4 @@
-# DuckDB v1.5.1's profiling_utils.hpp doesn't compile as C++23 under libc++, which instantiates unique_ptr members
-# eagerly; the patch moves the functions using an incomplete ActiveTimer below its definition.
+# A DuckDB header doesn't compile as C++23 with libc++; see duckdb_cxx23.patch for details.
 
 if(APPLE)
     block()

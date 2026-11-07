@@ -16,7 +16,6 @@ services:
     networks:
       - iceberg-net
 
-  # The bucket is private; clients read through the credentials vended by the REST catalog.
   create-bucket:
     image: rustfs/rustfs:1.0.0
     depends_on:

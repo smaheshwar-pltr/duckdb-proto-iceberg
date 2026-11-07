@@ -70,7 +70,7 @@ TEST_CASE("date as days since epoch", "[literal_conversion]") {
 TEST_CASE("time as microseconds from midnight", "[literal_conversion]") {
 	auto lit = ConvertValueToLiteral(Value::TIME(12, 30, 0, 0));
 	REQUIRE(lit.has_value());
-	// 12:30:00 = 12*3600*1e6 + 30*60*1e6 = 45000000000
+	// 12:30:00 in microseconds
 	REQUIRE(lit->ToString() == "45000000000");
 }
 
@@ -215,7 +215,7 @@ TEST_CASE("large decimal exercising int128 path", "[literal_conversion]") {
 }
 
 TEST_CASE("large negative decimal exercising int128 sign extension", "[literal_conversion]") {
-	// hugeint_t{upper=-1, lower=1} in two's complement = -(2^64 - 1) = -18446744073709551615
+	// -(2^64 - 1)
 	auto val = Value::HUGEINT(hugeint_t(-1, 1));
 	auto decimal_val = val.DefaultCastAs(LogicalType::DECIMAL(38, 0));
 	auto lit = ConvertValueToLiteral(decimal_val);
@@ -224,7 +224,7 @@ TEST_CASE("large negative decimal exercising int128 sign extension", "[literal_c
 }
 
 TEST_CASE("large positive decimal needs nonzero hugeint upper word", "[literal_conversion]") {
-	// 2^64, whose nonzero upper word must survive (upper << 64) | lower.
+	// 2^64
 	auto val = Value::HUGEINT(hugeint_t(1, 0));
 	auto decimal_val = val.DefaultCastAs(LogicalType::DECIMAL(38, 0));
 	auto lit = ConvertValueToLiteral(decimal_val);

@@ -1,12 +1,5 @@
-# Builds the iceberg-cpp submodule at configure time and imports it with find_package().
-#
-# iceberg-cpp gets its own CMake invocation rather than add_subdirectory() so that DuckDB's
-# directory-wide include paths (its vendored fmt, zstd, ...) cannot shadow iceberg-cpp's bundled
-# dependencies. Once iceberg-cpp is packaged this can become a plain find_package():
-# https://github.com/apache/iceberg-cpp/issues/188
-#
-# The build is skipped while the submodule revision, its local changes and the settings below
-# match the last successful install.
+# Builds iceberg-cpp in its own CMake invocation, so DuckDB's include paths can't shadow its bundled dependencies.
+# TODO: Use find_package() once iceberg-cpp is packaged: https://github.com/apache/iceberg-cpp/issues/188
 
 block()
     set(source_dir "${PROJECT_SOURCE_DIR}/third_party/iceberg-cpp")
@@ -18,7 +11,7 @@ block()
     set(init_cache [==[
 set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "")
 set(CMAKE_INSTALL_LIBDIR lib CACHE PATH "")
-# Build every dependency from source rather than picking up system packages.
+# Build all dependencies from source.
 set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "")
 set(ICEBERG_BUILD_STATIC ON CACHE BOOL "")
 set(ICEBERG_BUILD_SHARED OFF CACHE BOOL "")
@@ -40,7 +33,7 @@ set(ICEBERG_S3 ON CACHE BOOL "")
             CMAKE_OSX_ARCHITECTURES
             CMAKE_OSX_DEPLOYMENT_TARGET
             CMAKE_OSX_SYSROOT
-            # Set by the vcpkg toolchain, so that the sub-build uses the same installed packages.
+            # Set by the vcpkg toolchain.
             VCPKG_TARGET_TRIPLET
             VCPKG_HOST_TRIPLET
             VCPKG_INSTALLED_DIR)
@@ -60,7 +53,7 @@ set(ICEBERG_S3 ON CACHE BOOL "")
                     ERROR_QUIET)
     string(SHA256 stamp "${revision}${local_changes}${init_cache}")
 
-    # Outside a git checkout changes can't be detected, so the (incremental) build always runs.
+    # Outside a git checkout, always rerun the build.
     set(previous_stamp "")
     if(git_result EQUAL 0 AND EXISTS "${stamp_file}"
        AND EXISTS "${install_dir}/lib/cmake/iceberg/iceberg-config.cmake")
@@ -78,8 +71,7 @@ set(ICEBERG_S3 ON CACHE BOOL "")
         file(WRITE "${build_dir}/init_cache.cmake" "${init_cache}")
 
         message(STATUS "[proto_iceberg] Building iceberg-cpp into ${install_dir}")
-        # --fresh drops the cache of a previous configuration, so only the settings above apply.
-        # iceberg-cpp turns on CMAKE_COMPILE_WARNING_AS_ERROR, which only --compile-no-warning-as-error overrides.
+        # iceberg-cpp enables CMAKE_COMPILE_WARNING_AS_ERROR.
         execute_process(COMMAND ${CMAKE_COMMAND} --fresh --compile-no-warning-as-error -G "${CMAKE_GENERATOR}"
                                 -C "${build_dir}/init_cache.cmake" -S "${source_dir}" -B "${build_dir}"
                         COMMAND_ERROR_IS_FATAL ANY)

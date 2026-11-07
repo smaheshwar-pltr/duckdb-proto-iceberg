@@ -6,22 +6,17 @@ set(LOADABLE_EXTENSION_NAME ${TARGET_NAME}_loadable_extension)
 
 project(${TARGET_NAME})
 
-# iceberg-cpp's headers need C++23. This applies to this directory's targets, not to DuckDB.
+# iceberg-cpp's headers need C++23.
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# iceberg-cpp formats floating-point values with std::format, which Apple's libc++ only provides from
-# macOS 13.3. DuckDB's release builds target 11.0, so raise the target for this extension.
+# iceberg-cpp formats floats with std::format, which Apple's libc++ only has from macOS 13.3.
 if(APPLE AND CMAKE_OSX_DEPLOYMENT_TARGET AND CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS 13.3)
     set(CMAKE_OSX_DEPLOYMENT_TARGET 13.3)
 endif()
 
 include(cmake/duckdb_cxx23_patch.cmake)
 include(cmake/iceberg_cpp.cmake)
-
-# ---------------------------------------------------------------------------
-# Extension
-# ---------------------------------------------------------------------------
 
 set(EXTENSION_SOURCES
     src/proto_iceberg_extension.cpp
@@ -37,24 +32,17 @@ set(EXTENSION_SOURCES
 )
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
-
-# " " is build_loadable_extension()'s PARAMETERS argument (flags such as -no-warnings); we pass none.
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
 target_include_directories(${EXTENSION_NAME} PRIVATE src/include)
 target_include_directories(${LOADABLE_EXTENSION_NAME} PRIVATE src/include)
 
-# Link iceberg-cpp privately, so DuckDB's executables get its archives but not its include paths or C++ standard.
-# DuckDB's keyword-less target_link_libraries() can't be mixed with PRIVATE, so set the properties PRIVATE would.
+# Same as linking iceberg-cpp PRIVATE, which DuckDB's keyword-less target_link_libraries() calls rule out.
 set(ICEBERG_LIBRARIES iceberg::iceberg_bundle_static iceberg::iceberg_rest_static)
 set_property(TARGET ${EXTENSION_NAME} ${LOADABLE_EXTENSION_NAME} APPEND PROPERTY LINK_LIBRARIES ${ICEBERG_LIBRARIES})
 foreach(library ${ICEBERG_LIBRARIES})
     set_property(TARGET ${EXTENSION_NAME} APPEND PROPERTY INTERFACE_LINK_LIBRARIES "$<LINK_ONLY:${library}>")
 endforeach()
-
-# ---------------------------------------------------------------------------
-# Unit tests
-# ---------------------------------------------------------------------------
 
 add_executable(proto_iceberg_unittest EXCLUDE_FROM_ALL
     test/test_type_mapping.cpp
@@ -72,10 +60,6 @@ target_include_directories(proto_iceberg_unittest PRIVATE
     test
     "${CMAKE_SOURCE_DIR}/third_party/catch")
 target_link_libraries(proto_iceberg_unittest PRIVATE ${EXTENSION_NAME} ${ICEBERG_LIBRARIES} duckdb)
-
-# ---------------------------------------------------------------------------
-# Install
-# ---------------------------------------------------------------------------
 
 install(
     TARGETS ${EXTENSION_NAME}

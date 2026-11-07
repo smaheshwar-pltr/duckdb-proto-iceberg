@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Runs the SQLLogicTests in test/sql against a REST catalog and object store in Docker.
-# Tests gate on `require-env ICEBERG_SERVER_AVAILABLE`, so they skip when run without this script.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

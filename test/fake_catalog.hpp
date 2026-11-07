@@ -25,7 +25,7 @@ public:
 	explicit FakeCatalog(std::size_t table_count)
 	    : InMemoryCatalog("fake", iceberg::arrow::MakeMockFileIO(), /*warehouse_location=*/"", {}),
 	      table_count_(table_count) {
-		// So ListNamespaces surfaces "default" to a schema scan.
+		// Gives ListNamespaces a "default" namespace to return.
 		(void)CreateNamespace({.levels = {"default"}}, {});
 	}
 

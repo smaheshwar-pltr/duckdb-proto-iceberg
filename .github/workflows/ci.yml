@@ -21,7 +21,7 @@ jobs:
       CC: gcc-14
       CXX: g++-14
       GEN: ninja
-      # Run the tests with assertions, ASan and UBSan in a release build. TODO: a debug build doesn't fit CI disk.
+      # Assertions, ASan and UBSan in a release build. TODO: Use a debug build once one fits on CI disk.
       EXT_FLAGS: -DFORCE_ASSERT=1
     steps:
       - uses: actions/checkout@v7
@@ -54,7 +54,7 @@ jobs:
       - name: Build
         run: make release
       - name: Save iceberg-cpp build
-        # Persist across runs even if a later step fails, but only a complete install (stamp present) on a cache miss.
+        # Save even if the build fails, as long as iceberg-cpp was installed.
         if: always() && steps.iceberg-cache.outputs.cache-hit != 'true' && hashFiles('build/release/_iceberg_install/.iceberg_stamp') != ''
         uses: actions/cache/save@v6
         with:

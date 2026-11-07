@@ -2,8 +2,6 @@
 """Generate test data in Iceberg tables via PyIceberg."""
 
 import datetime
-import time
-import urllib.request
 import uuid
 from decimal import Decimal
 import pyarrow as pa
@@ -32,28 +30,12 @@ from pyiceberg.partitioning import PartitionSpec, PartitionField
 from pyiceberg.transforms import IdentityTransform, DayTransform
 
 
-def wait_for_catalog(catalog_uri, max_retries=30, delay=2):
-    """Wait for the REST catalog to be ready."""
-    for i in range(max_retries):
-        try:
-            urllib.request.urlopen(f"{catalog_uri}/v1/config", timeout=5)
-            print("REST catalog is ready.")
-            return
-        except Exception:
-            print(f"Waiting for REST catalog... ({i + 1}/{max_retries})")
-            time.sleep(delay)
-    raise RuntimeError("REST catalog did not become ready in time")
-
-
 def create_catalog():
-    catalog_uri = "http://localhost:8181"
-    wait_for_catalog(catalog_uri)
-
     catalog = load_catalog(
         "rest",
         **{
             "type": "rest",
-            "uri": catalog_uri,
+            "uri": "http://localhost:8181",
             "s3.endpoint": "http://localhost:9000",
             "s3.access-key-id": "admin",
             "s3.secret-access-key": "password",

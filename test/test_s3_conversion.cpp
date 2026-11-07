@@ -25,13 +25,12 @@ std::string Join(const std::map<std::string, std::string> &entries) {
 	return joined;
 }
 
-/// Renders iceberg-cpp properties with values verbatim, e.g. "s3.endpoint=localhost:9000, s3.ssl.enabled=false".
+/// Renders iceberg-cpp properties with values verbatim.
 std::string Render(const Properties &properties) {
 	return Join(std::map<std::string, std::string>(properties.begin(), properties.end()));
 }
 
-/// Renders DuckDB secret options with values as SQL literals, so that e.g. the string 'false' and the boolean false
-/// differ: "endpoint='minio:9000', use_ssl=false".
+/// Renders DuckDB secret options with values as SQL literals, so strings and booleans differ.
 template <typename Options>
 std::string Render(const Options &options) {
 	std::map<std::string, std::string> entries;

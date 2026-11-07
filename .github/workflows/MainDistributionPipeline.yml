@@ -1,4 +1,3 @@
-# Builds and tests the extension binaries with DuckDB's distribution pipeline.
 name: Main Extension Distribution Pipeline
 on:
   push:
